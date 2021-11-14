@@ -89,7 +89,7 @@ methode:
 proto:
 	| PUBLIC? ; t=typ ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
 		{ t, id, l }
-	| PUBLIC? ; VOID; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
+	| PUBLIC? ; VOID ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
 		{ id, l }
 
 parametre: t=typ ; id=IDENT { t, id }
@@ -112,44 +112,44 @@ class_main: /* nécessairement la dernière class */
 		then id, l else failwith "error 404" }
 
 expr:
-	| NULL { Enil }
-	| es=expr_simple { Esimple es }
-	| a=acces ; EQUAL ; e=expr { Eequal(a,e) }
-	| NOT ; e=expr { Eunop(Unot,e) }
-	| MINUS ; e=expr %prec UNMIN { Eunop(Uneg,e) }
-	| e1=expr ; op=operateur ; e2=expr {}
+	| NULL 					{ Enil }
+	| es=expr_simple 			{ Esimple es }
+	| a=acces ; EQUAL ; e=expr 		{ Eequal(a,e) }
+	| NOT ; e=expr 				{ Eunop(Unot,e) }
+	| MINUS ; e=expr %prec UNMIN 		{ Eunop(Uneg,e) }
+	| e1=expr ; op=operateur ; e2=expr 	{ Ebinop(e1,op,e2) }
 	
 acces:
-	| id=IDENT
-	| es=expr_simple ; DOT ; id=IDENT
+	| id=IDENT 				{ Aident id }
+	| es=expr_simple ; DOT ; id=IDENT 	{ Achemin(es,id) }
 
 expr_simple:
-	| n=CONST
-	| s=STR
-	| b=BOOL
-	| THIS
-	| LPAR ; e=expr ; RPAR
-	| NEW ; nt=ntype ; LPAR ; l=seperated_list(VIRG,expr) ; RPAR
-	| a=acces ; LPAR ; l=seperated_list(VIRG,expr) ; RPAR
-	| a=acces
+	| n=CONST 							{ ESint n }
+	| s=STR 							{ ESstr s }
+	| b=BOOL 							{ ESbool b }
+	| THIS 								{ ESthis }
+	| LPAR ; e=expr ; RPAR 						{ ESexpr e }
+	| NEW ; nt=ntype ; LPAR ; l=seperated_list(VIRG,expr) ; RPAR 	{ ESnew(nt,l) }
+	| a=acces ; LPAR ; l=seperated_list(VIRG,expr) ; RPAR 		{ ESacces(a,l) }
+	| a=acces 							{ ESacces a }
 
 %inline operateur:
-	| x=EQU | x=CMP | x=RING { binop x }
-	| LT { binop Blt }
-	| GT { binop Bgt }
-	| PLUS { Badd }
-	| MINUS { Bsub }
-	| AND { Band }
-	| OR { Bor }
+	| x=EQU | x=CMP | x=RING 	{ binop x }
+	| LT 				{ binop Blt }
+	| GT 				{ binop Bgt }
+	| PLUS 				{ Badd }
+	| MINUS 			{ Bsub }
+	| AND 				{ Band }
+	| OR 				{ Bor }
 
 instruction:
-	|
-	| es=expr_simple
-	| a=acces ; EQUAL ; e=expr
-	| t=typ ; id=IDENT
-	| t=typ ; id=IDENT ; EQUAL ; e=expr
-	| IF ; LPAR ; e=expr ; RPAR ; ins=instruction
-	| IF ; LPAR ; e=expr ; RPAR ; i1=instruction ; ELSE ; i2=instruction
-	| WHILE ; LPAR ; e=expr ; RPAR ; ins=instruction
-	| LAC ; l=instruction* ; RAC
-	| RETURN ; e=expr?
+	| 									{ Inil }
+	| es=expr_simple 							{ Isimple es }
+	| a=acces ; EQUAL ; e=expr 						{ Idef(a,e) }
+	| t=typ ; id=IDENT 							{ Iinit(t,id) }
+	| t=typ ; id=IDENT ; EQUAL ; e=expr 					{ Iinit_def(t,id,e) }
+	| IF ; LPAR ; e=expr ; RPAR ; ins=instruction 				{ Iif(e,ins,Inil) }
+	| IF ; LPAR ; e=expr ; RPAR ; i1=instruction ; ELSE ; i2=instruction 	{ Iif(e,i1,i2) }
+	| WHILE ; LPAR ; e=expr ; RPAR ; ins=instruction 			{ Iwhile(e,ins) }
+	| LAC ; l=instruction* ; RAC 						{ Ibloc l}
+	| RETURN ; e=expr? 							{ Ireturn e }

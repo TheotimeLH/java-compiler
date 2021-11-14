@@ -54,7 +54,7 @@ fichier:
 class_intf:
 	| CLASS ; id=IDENT ; pt=paramstype? ; ext=extends1? ;	imp=implements?	; LAC ; d=decl* ; RAC
 		{ id, pt, ext, imp, d }
-	| INTERFACE ; id=IDENT ; pt=paramstype? ;	extextends2? ;	LAC ; pr=pro* ; RAC 
+	| INTERFACE ; id=IDENT ; pt=paramstype? ;	ext=extends2? ;	LAC ; pr=pro* ; RAC 
 		{ id, pt, ext, pr }
 
 extends1:
@@ -95,9 +95,9 @@ proto:
 parametre: t=typ ; id=IDENT { t, id }
 
 typ: 
-	| BOOLEAN { Jboolean }
-	| INT { Jint }
-	| nt=ntype { nt }
+	| BOOLEAN 	{ Jboolean }
+	| INT 			{ Jint }
+	| nt=ntype 	{ Jntype nt }
 
 ntype:
 	| id=IDENT ; nt=ntype_aux? { id, nt }
@@ -116,12 +116,22 @@ expr:
 	| es=expr_simple { Esimple es }
 	| a=acces ; EQUAL ; e=expr { Eequal(a,e) }
 	| NOT ; e=expr { Eunop(Unot,e) }
-	| MINUS ; e=expr %prec UNMIN { Eunop(,e) }
-	| e1=expr ; op=operateur ; e2=expr
+	| MINUS ; e=expr %prec UNMIN { Eunop(Uneg,e) }
+	| e1=expr ; op=operateur ; e2=expr {}
 	
 acces:
+	| id=IDENT
+	| es=expr_simple ; DOT ; id=IDENT
 
 expr_simple:
+	| n=CONST
+	| s=STR
+	| b=BOOL
+	| THIS
+	| LPAR ; e=expr ; RPAR
+	| NEW ; nt=ntype ; LPAR ; l=seperated_list(VIRG,expr) ; RPAR
+	| a=acces ; LPAR ; l=seperated_list(VIRG,expr) ; RPAR
+	| a=acces
 
 %inline operateur:
 	| x=EQU | x=CMP | x=RING { binop x }
@@ -133,3 +143,13 @@ expr_simple:
 	| OR { Bor }
 
 instruction:
+	|
+	| es=expr_simple
+	| a=acces ; EQUAL ; e=expr
+	| t=typ ; id=IDENT
+	| t=typ ; id=IDENT ; EQUAL ; e=expr
+	| IF ; LPAR ; e=expr ; RPAR ; ins=instruction
+	| IF ; LPAR ; e=expr ; RPAR ; i1=instruction ; ELSE ; i2=instruction
+	| WHILE ; LPAR ; e=expr ; RPAR ; ins=instruction
+	| LAC ; l=instruction* ; RAC
+	| RETURN ; e=expr?

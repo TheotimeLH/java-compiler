@@ -40,9 +40,18 @@
 %left DOT
 
 /* Point d'entrée de la grammaire */
-%start file
+%start fichier
 
 /* Type des valeurs renvoyées par l'analyseur syntaxique */
-%type <Ast.program> file
+%type <Ast.fichier> fichier
 
 %%
+
+fichier:
+	| l=list(class_intf) m=class_Main EOF { l , m }
+
+class_intf:
+	| CLASS id=IDENT (pt=paramstype)? 
+
+class_main:
+	|CLASS main=IDENT LAC PUBLIC STATIC VOID m=IDENT LPAR str=IDENT LCRO RCRO id=IDENT LAC l=list(instruction)

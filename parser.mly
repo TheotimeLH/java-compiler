@@ -6,7 +6,13 @@
 
 /* Déclaration des tokens */ 
 %token EOF
-%token <int> Const
-%token <string> Ident
+%token <int> CONST
+%token <string> IDENT
 %token <bool> BOOL
-%token ehdddhdhhdhdhdhdhhd
+%token <string> STR
+%token BOOLEAN CLASS ELSE
+%token EXTENDS FALSE IF
+%token IMPLEMENTS INT INTERFACE
+%token NEW NULL PUBLIC
+%token RETURN STATIC THUS
+%token TRUE VOID WHILE

@@ -11,12 +11,15 @@
 	let id_or_keyword = 
 		let keywords = Hashtbl.create 18 in
 		List.iter (fun (s,t) -> Hashtbl.add keywords s t)
-			["boolean",BOOLEAN ;	"class",CLASS ;	"else",ELSE ;
-			"extends",EXTENDS ;	"false",FALSE ;	"if",IF	;
-			"implements",IMPLEMENTS ;	"int",INT ;	"interface"INTERFACE ;
-			"new",NEW ;	"null",NULL ;	"public",PUBLIC ;	"return",RETURN;
-			"static",STATIC ;	"this",THIS ;	"true",TRUE ;
-			"void",VOID ;	"while",WHILE]	;
+			["boolean",BOOLEAN ; "class",CLASS ;
+			"else",ELSE ; "extends",EXTENDS ;
+			"false",FALSE ; "if",IF	;
+			"implements",IMPLEMENTS ; "int",INT ;
+			"interface"INTERFACE ; "new",NEW ;
+			"null",NULL ; "public",PUBLIC ;
+			"return",RETURN; "static",STATIC ;
+			"this",THIS ; "true",TRUE ;
+			"void",VOID ; "while",WHILE]	;
 		fun s -> try Hashtbl.find s keywords with Not_Found -> IDENT s
 	
 	let string_buffer = Buffer.create 1024 

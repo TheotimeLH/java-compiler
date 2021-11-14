@@ -13,12 +13,12 @@
 		List.iter (fun (s,t) -> Hashtbl.add keywords s t)
 			["boolean",BOOLEAN ; "class",CLASS ;
 			"else",ELSE ; "extends",EXTENDS ;
-			"false",FALSE ; "if",IF	;
+			"false",BOOL false ; "if",IF	;
 			"implements",IMPLEMENTS ; "int",INT ;
 			"interface"INTERFACE ; "new",NEW ;
 			"null",NULL ; "public",PUBLIC ;
 			"return",RETURN; "static",STATIC ;
-			"this",THIS ; "true",TRUE ;
+			"this",THIS ; "true",BOOL true ;
 			"void",VOID ; "while",WHILE]	;
 		fun s -> try Hashtbl.find s keywords with Not_Found -> IDENT s
 	
@@ -46,7 +46,16 @@ rule token = parse
 	| entier as s -> {try Const (int_of_string s)
       with _ -> raise Error(Location.curr lexbuf,"entier trop grand"}
 	|	ident as s -> {id_or_keyword s}
-	| "==" {CMP Beq} |	"!=" {CMP Bneq}
+	| '=' {EQUAL}
+	|	"||" {OR}
+	|	"&&" {AND}
+	| "==" {EQU Beq} |	"!=" {EQU Bneq}	
+	|	'<' {CMP Blt}	| "<=" {CMP Ble} |	'>' {CMP Bgt}	|	">=" {CMP Bge}
+	|	'+' {PLUS}	|	'-' {MINUS}
+	|	'*' {RING Bmul}	|	'/' {RING Bdiv}	|	'%' {RING Bmod}
+	|	'!' {NOT}
+	| '.' {DOT}
+	
 
 and chaine = parse
 	| '"' {let s = Buffer.contents string_buffer in

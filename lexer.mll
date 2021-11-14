@@ -55,6 +55,11 @@ rule token = parse
 	|	'*' {RING Bmul}	|	'/' {RING Bdiv}	|	'%' {RING Bmod}
 	|	'!' {NOT}
 	| '.' {DOT}
+	|	'(' {LPAR}	|	')' {RPAR}
+	|	'[' {LCRO}	|	']' {RCRO}
+	|	'{' {LAC}	|	'}' {RAC}
+	| ',' {VIRG}	|	';' {PVIRG}	|	'&' {ESP}
+	
 	
 
 and chaine = parse

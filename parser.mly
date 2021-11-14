@@ -9,4 +9,4 @@
 %token <int> Const
 %token <string> Ident
 %token <bool> BOOL
-%
+%token ehdddhdhhdhdhdhdhhd

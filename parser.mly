@@ -49,13 +49,13 @@
 %%
 
 fichier:
-	| l=class_intf* ; cm=class_Main ; EOF { l, cm }
+	| l=class_intf* ; cm=class_Main ; EOF { { intfs=l ; main=cm } }
 
 class_intf:
 	| CLASS ; id=IDENT ; pt=paramstype? ; ext=extends1? ;	imp=implements?	; LAC ; d=decl* ; RAC
-		{ id, pt, ext, imp, d }
+		{ Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } }
 	| INTERFACE ; id=IDENT ; pt=paramstype? ;	ext=extends2? ;	LAC ; p=pro* ; RAC 
-		{ id, pt, ext, p }
+		{ Interface { nom=id ; params=pt ; extds=ext ; body=p } }
 
 extends1:
 	| EXTENDS ; nt=ntype { nt }
@@ -70,7 +70,7 @@ paramstype:
 	| LT ; l=seperated_nonempty_list(VIRG,paramtype) ; GT { l }
 
 paramtype:
-	| id=IDENT ; l=extends3 { { nom = id ; extds = l } }
+	| id=IDENT ; l=extends3 { { nom=id ; extds=l } }
 extends3:
 	|EXTENDS ; l=seperated_nonempty_list(ESP,ntype) { l }
 
@@ -81,23 +81,23 @@ decl:
 
 constructeur:
 	| id=IDENT ; LPAR ; par=separated_list(VIRG,parametre) ; RPAR ; LAC ; ins=instruction* ; RAC
-		{ { nom = id ; params = par ; body = ins } }
+		{ { nom=id ; params=par ; body=ins } }
 
 methode:
-	| p=proto ; LAC ; l=instruction* ; RAC { { info = p ; body = l } }
+	| p=proto ; LAC ; l=instruction* ; RAC { { info=p ; body=l } }
 
 proto:
 	| b=public ; t=type_void ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
-		{ { public = b ; typ = t ; nom = id ; params = l } }
+		{ { public=b ; typ=t ; nom=id ; params=l } }
 public:
-	| { false }
-	| PUBLIC { true }
+	| 				{ false }
+	| PUBLIC 	{ true }
 type_void:
-	| Void { None }
+	| Void 	{ None }
 	| t=typ { Some t }
 
 parametre:
-	| t=typ ; id=IDENT { { typ = t ; nom = id } }
+	| t=typ ; id=IDENT { { typ=t ; nom=id } }
 
 typ: 
 	| BOOLEAN 	{ Jboolean }
@@ -114,7 +114,7 @@ class_main: /* nécessairement la dernière class */
 		n=IDENT ; LPARs ; tr=IDENT ; LCRO ; RCRO ;
 		id=IDENT ; LAC ; l=instruction* ; RAC ; RAC
 		{ if m = "Main" && n = "main" && str = "String"
-		then id, l else failwith "error 404" }
+		then { nom=id ; body=l } else failwith "error 404" }
 
 expr:
 	| NULL 															{ Enil }

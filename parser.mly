@@ -95,8 +95,8 @@ proto:
 parametre: t=typ ; id=IDENT { t, id }
 
 typ: 
-	| BOOLEAN { jtype Jboolean }
-	| INT { jtype Jint }
+	| BOOLEAN { Jboolean }
+	| INT { Jint }
 	| nt=ntype { nt }
 
 ntype:
@@ -111,4 +111,25 @@ class_main: /* nécessairement la dernière class */
 		{ if m = "Main" && n = "main" && str = "String"
 		then id, l else failwith "error 404" }
 
+expr:
+	| NULL { Enil }
+	| es=expr_simple { Esimple es }
+	| a=acces ; EQUAL ; e=expr { Eequal(a,e) }
+	| NOT ; e=expr { Eunop(Unot,e) }
+	| MINUS ; e=expr %prec UNMIN { Eunop(,e) }
+	| e1=expr ; op=operateur ; e2=expr
+	
+acces:
 
+expr_simple:
+
+%inline operateur:
+	| x=EQU | x=CMP | x=RING { binop x }
+	| LT { binop Blt }
+	| GT { binop Bgt }
+	| PLUS { Badd }
+	| MINUS { Bsub }
+	| AND { Band }
+	| OR { Bor }
+
+instruction:

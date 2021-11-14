@@ -48,7 +48,7 @@ type instruction =
 type param = jtype * ident
 
 type secu = Public | NonPublic
-type proto = secu * (jtype option) * ident * param list
+type proto = secu * jtype option * ident * param list
 
 type methode = proto * instruction list
 
@@ -61,7 +61,9 @@ type decl =
 
 type paramtype = ident * ntype list
 
-type paramstype
+type classe_intf = 
+	|	Class of ident * paramtype list * ntype option * ntype list * decl list
+	|	Interface of ident * paramtype list * ntype list * proto list
 
 type classe_main = ident * instruction list 
 

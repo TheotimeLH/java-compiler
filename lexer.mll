@@ -43,7 +43,10 @@ rule token = parse
 			try STR (chaine lexbuf)
 			with Non_fini -> 
 				raise (Error(pos_debut,"chaine de caractères non finie"))}
-	| entier as s -> {}
+	| entier as s -> {try Const (int_of_string s)
+      with _ -> raise Error(Location.curr lexbuf,"entier trop grand"}
+	|	ident as s -> {id_or_keyword s}
+	| "==" {CMP Beq} |	"!=" {CMP Bneq}
 
 and chaine = parse
 	| '"' {let s = Buffer.contents string_buffer in
@@ -61,6 +64,7 @@ and chaine = parse
 	| _ as c {Buffer.add_char string_buffer c;
         chaine lexbuf}
 	| eof {raise Non_fini}
+	
 
 
 and comment = parse

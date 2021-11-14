@@ -54,8 +54,8 @@ fichier:
 class_intf:
 	| CLASS ; id=IDENT ; pt=paramstype? ; ext=extends1? ;	imp=implements?	; LAC ; d=decl* ; RAC
 		{ id, pt, ext, imp, d }
-	| INTERFACE ; id=IDENT ; pt=paramstype? ;	ext=extends2? ;	LAC ; pr=pro* ; RAC 
-		{ id, pt, ext, pr }
+	| INTERFACE ; id=IDENT ; pt=paramstype? ;	ext=extends2? ;	LAC ; p=pro* ; RAC 
+		{ id, pt, ext, p }
 
 extends1:
 	| EXTENDS ; nt=ntype { nt }
@@ -70,34 +70,34 @@ paramstype:
 	| LT ; l=seperated_nonempty_list(VIRG,paramtype) ; GT { l }
 
 paramtype:
-	| id=IDENT ; l=extends3 { l }
+	| id=IDENT ; l=extends3 { { nom = id ; extds = l } }
 extends3:
 	|EXTENDS ; l=seperated_nonempty_list(ESP,ntype) { l }
 
 decl:
-	| t=typ ;  id=ident ; PVIRG { t, id }
-	| c=constructeur { c }
-	| m=methode { m }
+	| t=typ ;  id=ident ; PVIRG { Dvar(t,id) }
+	| c=constructeur 						{ Dconstr c }
+	| m=methode 								{ Dmeth m }
 
 constructeur:
 	| id=IDENT ; LPAR ; par=separated_list(VIRG,parametre) ; RPAR ; LAC ; ins=instruction* ; RAC
-		{ id, par, ins }
+		{ { nom = id ; params = par ; body = ins } }
 
 methode:
-	| pro=proto ; LAC ; ins=instruction* ; RAC { pro; ins }
+	| p=proto ; LAC ; l=instruction* ; RAC { { info = p ; body = l } }
 
 proto:
-	| PUBLIC? ; t=typ ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
-		{ t, id, l }
-	| PUBLIC? ; VOID ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
-		{ id, l }
-	| t=typ ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
-		{ t, id, l }
-	| VOID ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
-		{ id, l }
+	| b=public ; t=type_void ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
+		{ { public = b ; typ = t ; nom = id ; params = l } }
+public:
+	| { false }
+	| PUBLIC { true }
+type_void:
+	| Void { None }
+	| t=typ { Some t }
 
 parametre:
-	| t=typ ; id=IDENT { t, id }
+	| t=typ ; id=IDENT { { typ = t ; nom = id } }
 
 typ: 
 	| BOOLEAN 	{ Jboolean }

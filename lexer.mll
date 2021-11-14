@@ -1,4 +1,4 @@
-(* Lexer ezkl*)
+(* Lexer *)
 
 {
 	open Lexing

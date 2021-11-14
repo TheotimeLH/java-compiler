@@ -34,35 +34,38 @@ and expr_simple =
 	|	ESnew of ntype * expr list
 	|	ESacces of acces * expr list
 
-type instruction = 
+type instr = 
 	| Inil
 	|	Isimple of expr_simple
 	|	Idef of acces * expr
 	|	Iinit of jtype * ident
 	|	Iinit_def of jtype * ident * expr
-	|	Iif of expr * instruction * instruction
-	|	Iwhile of expr * instruction
-	|	Ibloc of instruction list
-	| Ireturn of expression option
+	|	Iif of expr * instr * instr
+	|	Iwhile of expr * instr
+	|	Ibloc of instr list
+	| Ireturn of expr option
 
-type param = jtype * ident
+type param = {typ : jtype ; nom : ident}
 
-type secu = Public | NonPublic
-type proto = secu * jtype option * ident * param list
+type proto = 
+	{public : bool ; typ : jtype option ;
+	nom : ident ; params : param list}
 
-type methode = proto * instruction list
+type methode = {info : proto ; instrs : instr list}
 
-type constructeur = ident * param list * instruction list
+type constructeur = 
+	{nom : ident ; params : param list ; instrs : instr list}
 
 type decl = 
 	|	Dvar of jtype * ident
 	|	Dconstr of constructeur 
 	|	Dmeth of methode
 
-type paramtype = ident * ntype list
+type paramtype = {nom = ident ; extends = ntype list}
 
 type classe_intf = 
 	|	Class of ident * paramtype list * ntype option * ntype list * decl list
+	| Class of {nom : ident ; params = paramtype list ; 
 	|	Interface of ident * paramtype list * ntype list * proto list
 
 type classe_main = ident * instruction list 

@@ -50,11 +50,12 @@ rule token = parse
 	|	"||" {OR}
 	|	"&&" {AND}
 	| "==" {EQU Beq} |	"!=" {EQU Bneq}	
-	|	'<' {CMP Blt}	| "<=" {CMP Ble} |	'>' {CMP Bgt}	|	">=" {CMP Bge}
+	|	"<=" {CMP Ble} |	">=" {CMP Bge}
 	|	'+' {PLUS}	|	'-' {MINUS}
 	|	'*' {RING Bmul}	|	'/' {RING Bdiv}	|	'%' {RING Bmod}
 	|	'!' {NOT}
 	| '.' {DOT}
+	| '<' {LT}	| '>' {GT}
 	|	'(' {LPAR}	|	')' {RPAR}
 	|	'[' {LCRO}	|	']' {RCRO}
 	|	'{' {LAC}	|	'}' {RAC}

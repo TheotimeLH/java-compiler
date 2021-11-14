@@ -28,7 +28,7 @@ and acces =
 	|	Achemin of expr_simple * ident
 
 and expr_simple =
-	|	ESint of int	| ESstr of string	| ESstr of bool
+	|	ESint of int	| ESstr of string	| ESbool of bool
 	|	ESthis
 	|	ESexpr of expr
 	|	ESnew of ntype * expr list
@@ -47,7 +47,21 @@ type instruction =
 
 type param = jtype * ident
 
-type proto =
+type secu = Public | NonPublic
+type proto = secu * (jtype option) * ident * param list
+
+type methode = proto * instruction list
+
+type constructeur = ident * param list * instruction list
+
+type decl = 
+	|	Dvar of jtype * ident
+	|	Dconstr of constructeur 
+	|	Dmeth of methode
+
+type paramtype = ident * ntype list
+
+type paramstype
 
 type classe_main = ident * instruction list 
 

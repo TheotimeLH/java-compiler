@@ -38,3 +38,11 @@
 %left RING
 %right UNMIN NOT
 %left DOT
+
+/* Point d'entrée de la grammaire */
+%start file
+
+/* Type des valeurs renvoyées par l'analyseur syntaxique */
+%type <Ast.program> file
+
+%%

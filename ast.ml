@@ -51,25 +51,26 @@ type proto =
 	{public : bool ; typ : jtype option ;
 	nom : ident ; params : param list}
 
-type methode = {info : proto ; instrs : instr list}
+type methode = {info : proto ; body : instr list}
 
 type constructeur = 
-	{nom : ident ; params : param list ; instrs : instr list}
+	{nom : ident ; params : param list ; body : instr list}
 
 type decl = 
 	|	Dvar of jtype * ident
 	|	Dconstr of constructeur 
 	|	Dmeth of methode
 
-type paramtype = {nom = ident ; extends = ntype list}
+type paramtype = {nom : ident ; extds : ntype list}
 
 type classe_intf = 
-	|	Class of ident * paramtype list * ntype option * ntype list * decl list
-	| Class of {nom : ident ; params = paramtype list ; 
-	|	Interface of ident * paramtype list * ntype list * proto list
+	| Class of {nom : ident ; params : paramtype list ;
+				extd : ntype option ; implmts : ntype list ; body : decl list}
+	|	Interface of {nom : ident ; params : paramtype list;
+				extds : ntype list ; body : proto list}
 
-type classe_main = ident * instruction list 
+type classe_main = {nom : ident ; body : instr list} 
 
-type fichier = class_intf list * classe_main
+type fichier = { intfs : classe_intf list ; main : classe_main}
 
 

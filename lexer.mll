@@ -1,7 +1,7 @@
 (* Lexer *)
 
 {
-	open Lexing zopjojr
+	open Lexing
 	open Parser
 	open Location	
 

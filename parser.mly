@@ -52,27 +52,20 @@ fichier:
 	| l=class_intf* ; cm=class_Main ; EOF { { intfs=l ; main=cm } }
 
 class_intf:
-	| CLASS ; id=IDENT ; pt=paramstype? ; ext=extends1? ;	imp=implements?	; LAC ; d=decl* ; RAC
+	| CLASS ; id=IDENT ; pt=paramstype? ; ext=preceded(EXTENDS,ntype)? ;
+		imp=loption(preceded(IMPLEMENTS,seperated_nonempty_list(VIRG,ntype)))	; LAC ; d=decl* ; RAC
 		{ Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } }
-	| INTERFACE ; id=IDENT ; pt=paramstype? ;	ext=extends2? ;	LAC ; p=pro* ; RAC 
+	| INTERFACE ; id=IDENT ; pt=paramstype? ;
+		ext=loption(preceded(EXTENDS,seperated_nonempty_list(VIRG,ntype))) ;
+		LAC ; p=terminated(proto,PVIRG)* ; RAC 
 		{ Interface { nom=id ; params=pt ; extds=ext ; body=p } }
-
-extends1:
-	| EXTENDS ; nt=ntype { nt }
-implements:
-	|IMPLEMENTS ; l=seperated_nonempty_list(VIRG,ntype) { l }
-extends2:
-	|EXTENDS ; l=seperated_nonempty_list(VIRG,ntype) { l }
-pro: 
-	| p=proto ; PVIRG { p }
 
 paramstype:
 	| LT ; l=seperated_nonempty_list(VIRG,paramtype) ; GT { l }
 
 paramtype:
-	| id=IDENT ; l=extends3 { { nom=id ; extds=l } }
-extends3:
-	|EXTENDS ; l=seperated_nonempty_list(ESP,ntype) { l }
+	| id=IDENT ; l=loption(preceded(EXTENDS,seperated_nonempty_list(ESP,ntype)))
+		{ { nom=id ; extds=l } }
 
 decl:
 	| t=typ ;  id=ident ; PVIRG { Dvar(t,id) }
@@ -87,14 +80,10 @@ methode:
 	| p=proto ; LAC ; l=instruction* ; RAC { { info=p ; body=l } }
 
 proto:
-	| b=public ; t=type_void ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
-		{ { public=b ; typ=t ; nom=id ; params=l } }
-public:
-	| 				{ false }
-	| PUBLIC 	{ true }
-type_void:
-	| Void 	{ None }
-	| t=typ { Some t }
+	| b=boption(PUBLIC) ; VOID ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
+		{ { public=b ; typ=None ; nom=id ; params=l } }
+	| b=boption(PUBLIC) ; t=typ ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
+		{ { public=b ; typ=Some t ; nom=id ; params=l } }
 
 parametre:
 	| t=typ ; id=IDENT { { typ=t ; nom=id } }

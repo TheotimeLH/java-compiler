@@ -1,4 +1,4 @@
-/* Parser TH */
+/* Parser SAM */
 
 %{
 	open Ast

@@ -4,7 +4,7 @@ type 'a desc =
 
 type ident = string
 
-type ntype = Ntype of ident * ntype list
+type ntype = Ntype of ident * ntype desc list
 
 type jtype = 
 	|	Jboolean | Jint 
@@ -22,55 +22,55 @@ type binop =
 type expr =
 	|	Enil
 	|	Esimple of expr_simple
-	|	Eequal of acces * expr
-	|	Eunop of unop * expr
-	|	Ebinop of expr * binop * expr
+	|	Eequal of acces desc * expr
+	|	Eunop of unop * expr desc 
+	|	Ebinop of expr desc * binop * expr desc 
 
 and acces = 
 	|	Aident of ident
-	|	Achemin of expr_simple * ident
+	|	Achemin of expr_simple desc * ident desc
 
 and expr_simple =
 	|	ESint of int	| ESstr of string	| ESbool of bool
 	|	ESthis
-	|	ESexpr of expr
-	|	ESnew of ntype * expr list
-	|	ESacces of acces * expr list
+	|	ESexpr of expr desc
+	|	ESnew of ntype desc * expr desc list
+	|	ESacces of acces desc * expr desc list
 
 type instr = 
 	| Inil
-	|	Isimple of expr_simple
-	|	Idef of acces * expr
-	|	Iinit of jtype * ident
-	|	Iinit_def of jtype * ident * expr
-	|	Iif of expr * instr * instr
-	|	Iwhile of expr * instr
-	|	Ibloc of instr list
-	| Ireturn of expr option
+	|	Isimple of expr_simple desc
+	|	Idef of acces desc * expr desc
+	|	Iinit of jtype desc * ident
+	|	Iinit_def of jtype desc * ident * expr desc
+	|	Iif of expr desc * instr desc * instr desc
+	|	Iwhile of expr desc * instr desc
+	|	Ibloc of instr desc list
+	| Ireturn of expr desc option
 
-type param = {typ : jtype ; nom : ident}
+type param = {typ : jtype desc ; nom : ident}
 
 type proto = 
-	{public : bool ; typ : jtype option ;
-	nom : ident ; params : param list}
+	{public : bool ; typ : jtype desc option ;
+	nom : ident ; params : param desc list}
 
-type methode = {info : proto ; body : instr list}
+type methode = {info : proto desc ; body : instr desc list}
 
 type constructeur = 
-	{nom : ident ; params : param list ; body : instr list}
+	{nom : ident ; params : param desc list ; body : instr desc list}
 
 type decl = 
-	|	Dvar of jtype * ident
-	|	Dconstr of constructeur 
-	|	Dmeth of methode
+	|	Dvar of jtype desc * ident desc	
+	|	Dconstr of constructeur desc
+	|	Dmeth of methode desc
 
-type paramtype = {nom : ident ; extds : ntype list}
+type paramtype = {nom : ident ; extds : ntype desc list}
 
 type classe_intf = 
-	| Class of {nom : ident ; params : paramtype list ;
-				extd : ntype option ; implmts : ntype list ; body : decl list}
-	|	Interface of {nom : ident ; params : paramtype list;
-				extds : ntype list ; body : proto list}
+	| Class of {nom : ident ; params : paramtype desc list ;
+				extd : ntype desc option ; implmts : ntype desc list ; body : decl desc list}
+	|	Interface of {nom : ident ; params : paramtype desc list;
+				extds : ntype desc list ; body : proto desc list}
 
 type classe_main = {nom : ident ; body : instr list} 
 

@@ -1,4 +1,7 @@
 (* Syntaxe abstraite pour petit Java *)
+type 'a desc = 
+	{loc : Location.position * Location.position ; desc : 'a}
+
 type ident = string
 
 type ntype = Ntype of ident * ntype list

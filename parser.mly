@@ -49,7 +49,11 @@
 %%
 
 fichier:
-	| l=class_intf* ; cm=class_Main ; EOF { { intfs=l ; main=cm } }
+	| l=class_intf_list ; cm=class_Main ; EOF { { intfs=List.rev l ; main=cm } }
+
+class_intf_list:
+	|	{[]}
+	|	l=class_intf_list ; c=class_intf {c::l}
 
 class_intf:
 	| CLASS ; id=IDENT ; pt=paramstype? ; ext=preceded(EXTENDS,ntype)? ;

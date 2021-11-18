@@ -1,4 +1,4 @@
-/* Parser */
+/* Parser TH */
 
 %{
 	open Ast
@@ -49,7 +49,7 @@
 %%
 
 fichier:
-	| l=class_intf_list ; cm=class_Main ; EOF { { intfs=List.rev l ; main=cm } }
+	|	l = class_intf_list ; cm=class_Main ; EOF { { intfs=List.rev l ; main=cm } }
 
 class_intf_list:
 	|	{[]}

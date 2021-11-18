@@ -26,7 +26,7 @@
 %token BOOLEAN CLASS ELSE EXTENDS
 %token IF IMPLEMENTS INT INTERFACE
 %token NEW NULL PUBLIC RETURN
-%token STATIC THUS VOID WHILE
+%token STATIC THIS VOID WHILE
 
 /* Priorités et associativités des tokens */
 
@@ -49,7 +49,7 @@
 %%
 
 fichier:
-	|	l = class_intf_list ; cm=class_Main ; EOF { { intfs=List.rev l ; main=cm } }
+	|	l = class_intf_list ; cm=class_Main ; EOF { { intfs=List.rev l ; main=cm } }
 
 class_intf_list:
 	|	{[]}
@@ -57,22 +57,22 @@ class_intf_list:
 
 class_intf:
 	| CLASS ; id=IDENT ; pt=paramstype? ; ext=preceded(EXTENDS,ntype)? ;
-		imp=loption(preceded(IMPLEMENTS,seperated_nonempty_list(VIRG,ntype)))	; LAC ; d=decl* ; RAC
-		{ Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } }
+		imp=loption(preceded(IMPLEMENTS,separated_nonempty_list(VIRG,ntype)))	; LAC ; d=decl* ; RAC
+		{ Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } }
 	| INTERFACE ; id=IDENT ; pt=paramstype? ;
-		ext=loption(preceded(EXTENDS,seperated_nonempty_list(VIRG,ntype))) ;
+		ext=loption(preceded(EXTENDS,separated_nonempty_list(VIRG,ntype))) ;
 		LAC ; p=terminated(proto,PVIRG)* ; RAC 
-		{ Interface { nom=id ; params=pt ; extds=ext ; body=p } }
+		{ Interface { nom=id ; params=pt ; extds=ext ; body=p } }
 
 paramstype:
-	| LT ; l=seperated_nonempty_list(VIRG,paramtype) ; GT { l }
+	| LT ; l=separated_nonempty_list(VIRG,paramtype) ; GT { l }
 
 paramtype:
-	| id=IDENT ; l=loption(preceded(EXTENDS,seperated_nonempty_list(ESP,ntype)))
+	| id=IDENT ; l=loption(preceded(EXTENDS,separated_nonempty_list(ESP,ntype)))
 		{ { nom=id ; extds=l } }
 
 decl:
-	| t=typ ;  id=ident ; PVIRG { Dvar(t,id) }
+	| t=typ ;  id=IDENT ; PVIRG { Dvar(t,id) }
 	| c=constructeur 						{ Dconstr c }
 	| m=methode 								{ Dmeth m }
 
@@ -81,30 +81,30 @@ constructeur:
 		{ { nom=id ; params=par ; body=ins } }
 
 methode:
-	| p=proto ; LAC ; l=instruction* ; RAC { { info=p ; body=l } }
+	| p=proto ; LAC ; l=instruction* ; RAC { { info=p ; body=l } }
 
 proto:
-	| b=boption(PUBLIC) ; VOID ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
+	| b=boption(PUBLIC) ; VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
 		{ { public=b ; typ=None ; nom=id ; params=l } }
-	| b=boption(PUBLIC) ; t=typ ; id=IDENT ; LPAR ; l=seperated_list(VIRG,parametre) ; RPAR
+	| b=boption(PUBLIC) ; t=typ ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
 		{ { public=b ; typ=Some t ; nom=id ; params=l } }
 
 parametre:
 	| t=typ ; id=IDENT { { typ=t ; nom=id } }
 
 typ: 
-	| BOOLEAN 	{ Jboolean }
+	| BOOLEAN 	{ Jboolean }
 	| INT 			{ Jint }
 	| nt=ntype 	{ Jntype nt }
 
 ntype:
-	| id=IDENT ; LT ; l=seperated_nonempty_list(ntype) ; GT
+	| id=IDENT ; LT ; l=separated_nonempty_list(VIRG,ntype) ; GT
 							{ Ntype(id,l) }
 	| id=IDENT	{ Ntype(id,[]) }
 
-class_main: /* nécessairement la dernière class */
+class_Main: /* nécessairement la dernière class */
 	| CLASS ; m=IDENT ; LAC ; PUBLIC ; STATIC ; VOID ;
-		n=IDENT ; LPARs ; tr=IDENT ; LCRO ; RCRO ;
+		n=IDENT ; LPAR ; tr=IDENT ; LCRO ; RCRO ;
 		id=IDENT ; LAC ; l=instruction* ; RAC ; RAC
 		{ if m = "Main" && n = "main" && str = "String"
 		then { nom=id ; body=l } else failwith "error 404" }
@@ -127,9 +127,9 @@ expr_simple:
 	| b=BOOL 								{ ESbool b }
 	| THIS 									{ ESthis }
 	| LPAR ; e=expr ; RPAR	{ ESexpr e }
-	| NEW ; nt=ntype ; LPAR ; l=seperated_list(VIRG,expr) ; RPAR 
+	| NEW ; nt=ntype ; LPAR ; l=separated_list(VIRG,expr) ; RPAR 
 													{ ESnew(nt,l) }
-	| a=acces ; LPAR ; l=seperated_list(VIRG,expr) ; RPAR
+	| a=acces ; LPAR ; l=separated_list(VIRG,expr) ; RPAR
 													{ ESacces(a,l) }
 	| a=acces 							{ ESacces a }
 
@@ -138,7 +138,7 @@ expr_simple:
 	| LT 											{ binop Blt }
 	| GT 											{ binop Bgt }
 	| PLUS 										{ Badd }
-	| MINUS 									{ Bsub }
+	| MINUS 									{ Bsub }
 	| AND 										{ Band }
 	| OR 											{ Bor }
 

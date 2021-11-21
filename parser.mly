@@ -49,8 +49,8 @@
 %%
 
 fichier:
-	| l = class_+ ; EOF { match List.hd l with
-		| Main _ -> { intfs=List.rev l ; main=cm }
+	| l = class_+ ; EOF { match List.hd (List.rev l) with
+		| Main _ -> { intfs=List.rev l }
 		| _ -> failwith "error 404" }
         
 class_:

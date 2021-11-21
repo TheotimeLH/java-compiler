@@ -66,14 +66,11 @@ type decl =
 
 type paramtype = {nom : ident ; extds : ntype desc list}
 
-type classe_intf = 
+type classe = 
 	| Class of {nom : ident ; params : paramtype desc list ;
 				extd : ntype desc option ; implmts : ntype desc list ; body : decl desc list}
 	|	Interface of {nom : ident ; params : paramtype desc list;
 				extds : ntype desc list ; body : proto desc list}
+	| Main of {nom : ident ; body : instr list} 
 
-type classe_main = {nom : ident ; body : instr list} 
-
-type fichier = { intfs : classe_intf list ; main : classe_main}
-
-
+type fichier = classe list

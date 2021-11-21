@@ -56,7 +56,7 @@ fichier:
 class_:
 	| CLASS ; id=IDENT ; pt=paramstype ; ext=extends ; imp=implements; LAC ; d=decl* ; RAC
 		{ Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } }
-	| INTERFACE ; id=IDENT ; pt=paramstype? ;
+	| INTERFACE ; id=IDENT ; pt=paramstype ;
 		ext=loption(preceded(EXTENDS,separated_nonempty_list(VIRG,ntype))) ;
 		LAC ; p=terminated(proto,PVIRG)* ; RAC 
 		{ Interface { nom=id ; params=pt ; extds=ext ; body=p } }

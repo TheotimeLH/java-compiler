@@ -54,7 +54,7 @@ fichier:
 		| _ -> failwith "error 404" }
         
 class_:
-	| CLASS ; id=IDENT ; pt=paramstype? ; ext=preceded(EXTENDS,ntype)? ;
+	| CLASS ; id=IDENT ; pt=paramstype ; ext=preceded(EXTENDS,ntype)? ;
 		imp=loption(preceded(IMPLEMENTS,separated_nonempty_list(VIRG,ntype))) ; LAC ; d=decl* ; RAC
 		{ Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } }
 	| INTERFACE ; id=IDENT ; pt=paramstype? ;
@@ -66,8 +66,10 @@ class_:
 		{ if m = "Main" && n = "main" && str = "String"
 		then Main { nom=id ; body=l } else failwith "error 404" }
 
-paramstype:
-	| LT ; l=separated_nonempty_list(VIRG,paramtype) ; GT { l }
+%inline paramstype:
+	| { None }
+	| LT ; l=separated_nonempty_list(VIRG,paramtype) ; GT
+		{ Some l }
 
 paramtype:
 	| id=IDENT ; l=loption(preceded(EXTENDS,separated_nonempty_list(ESP,ntype)))

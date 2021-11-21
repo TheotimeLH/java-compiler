@@ -34,13 +34,11 @@
 %left OR
 %left AND
 %left EQU
-%left CMP
+%left CMP LT GT
 %left PLUS MINUS
 %left RING
 %right UNMIN NOT
 %left DOT
-%nonassoc IF
-%nonassoc ELSE
 
 /* Point d'entrée de la grammaire */
 %start fichier
@@ -51,20 +49,21 @@
 %%
 
 fichier:
-	| l = class_intf_list ; cm=class_Main ; EOF { { intfs=List.rev l ; main=cm } }
-
-class_intf_list:
-	| {[]}
-	| l=class_intf_list ; c=class_intf {c::l}
-
-class_intf:
+	| l = class_+ ; EOF { { intfs=List.rev l ; main=cm } }
+        
+class_:
 	| CLASS ; id=IDENT ; pt=paramstype? ; ext=preceded(EXTENDS,ntype)? ;
-		imp=loption(preceded(IMPLEMENTS,separated_nonempty_list(VIRG,ntype)))	; LAC ; d=decl* ; RAC
+		imp=loption(preceded(IMPLEMENTS,separated_nonempty_list(VIRG,ntype))) ; LAC ; d=decl* ; RAC
 		{ Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } }
 	| INTERFACE ; id=IDENT ; pt=paramstype? ;
 		ext=loption(preceded(EXTENDS,separated_nonempty_list(VIRG,ntype))) ;
 		LAC ; p=terminated(proto,PVIRG)* ; RAC 
 		{ Interface { nom=id ; params=pt ; extds=ext ; body=p } }
+        | CLASS ; m=IDENT ; LAC ; PUBLIC ; STATIC ; VOID ; n=IDENT ; LPAR ; tr=IDENT ;
+                LCRO ; RCRO ; id=IDENT ; LAC ; l=instruction* ; RAC ; RAC
+		{ if m = "Main" && n = "main" && str = "String"
+		then Main { nom=id ; body=l } else failwith "error 404" }
+                                                                       
 
 paramstype:
 	| LT ; l=separated_nonempty_list(VIRG,paramtype) ; GT { l }
@@ -106,13 +105,6 @@ ntype:
 	| id=IDENT ; LT ; l=separated_nonempty_list(VIRG,ntype) ; GT
 							{ Ntype(id,l) }
 	| id=IDENT	{ Ntype(id,[]) }
-
-class_Main: /* nécessairement la dernière class */
-	| CLASS ; m=IDENT ; LAC ; PUBLIC ; STATIC ; VOID ;
-		n=IDENT ; LPAR ; tr=IDENT ; LCRO ; RCRO ;
-		id=IDENT ; LAC ; l=instruction* ; RAC ; RAC
-		{ if m = "Main" && n = "main" && str = "String"
-		then { nom=id ; body=l } else failwith "error 404" }
 
 expr:
 	| NULL 															{ Enil }

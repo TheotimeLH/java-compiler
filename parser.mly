@@ -49,7 +49,9 @@
 %%
 
 fichier:
-	| l = class_+ ; EOF { { intfs=List.rev l ; main=cm } }
+	| l = class_+ ; EOF { match List.hd l with
+		| Main _ -> { intfs=List.rev l ; main=cm }
+		| _ -> failwith "error 404" }
         
 class_:
 	| CLASS ; id=IDENT ; pt=paramstype? ; ext=preceded(EXTENDS,ntype)? ;
@@ -59,11 +61,10 @@ class_:
 		ext=loption(preceded(EXTENDS,separated_nonempty_list(VIRG,ntype))) ;
 		LAC ; p=terminated(proto,PVIRG)* ; RAC 
 		{ Interface { nom=id ; params=pt ; extds=ext ; body=p } }
-        | CLASS ; m=IDENT ; LAC ; PUBLIC ; STATIC ; VOID ; n=IDENT ; LPAR ; tr=IDENT ;
-                LCRO ; RCRO ; id=IDENT ; LAC ; l=instruction* ; RAC ; RAC
+	| CLASS ; m=IDENT ; LAC ; PUBLIC ; STATIC ; VOID ; n=IDENT ; LPAR ;
+	 	str=IDENT ; LCRO ; RCRO ; id=IDENT ; LAC ; l=instruction* ; RAC ; RAC
 		{ if m = "Main" && n = "main" && str = "String"
 		then Main { nom=id ; body=l } else failwith "error 404" }
-                                                                       
 
 paramstype:
 	| LT ; l=separated_nonempty_list(VIRG,paramtype) ; GT { l }

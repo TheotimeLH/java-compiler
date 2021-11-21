@@ -49,11 +49,11 @@
 %%
 
 fichier:
-	|	l = class_intf_list ; cm=class_Main ; EOF { { intfs=List.rev l ; main=cm } }
+	| l = class_intf_list ; cm=class_Main ; EOF { { intfs=List.rev l ; main=cm } }
 
 class_intf_list:
-	|	{[]}
-	|	l=class_intf_list ; c=class_intf {c::l}
+	| {[]}
+	| l=class_intf_list ; c=class_intf {c::l}
 
 class_intf:
 	| CLASS ; id=IDENT ; pt=paramstype? ; ext=preceded(EXTENDS,ntype)? ;
@@ -84,10 +84,13 @@ methode:
 	| p=proto ; LAC ; l=instruction* ; RAC { { info=p ; body=l } }
 
 proto:
-	| b=boption(PUBLIC) ; VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
+	| b=pblc ; VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
 		{ { public=b ; typ=None ; nom=id ; params=l } }
-	| b=boption(PUBLIC) ; t=typ ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
+	| b=pblc ; t=typ ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
 		{ { public=b ; typ=Some t ; nom=id ; params=l } }
+%inline pblc:
+        |       { false }
+        | PUBLIC { true }
 
 parametre:
 	| t=typ ; id=IDENT { { typ=t ; nom=id } }

@@ -39,6 +39,7 @@
 %left RING
 %right UNMIN NOT
 %left DOT
+%nonassoc IF ELSE
 
 /* Point d'entrée de la grammaire */
 %start fichier

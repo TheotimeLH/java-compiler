@@ -87,65 +87,67 @@ class_:
 
 paramtype:
 	| id=IDENT ; l=loption(preceded(EXTENDS,separated_nonempty_list(ESP,ntype)))
-		{ { nom=id ; extds=l } }
+		{ { loc=$starpos,$endpos ; desc = { nom=id ; extds=l } } }
 
 decl:
-	| t=typ ;  id=IDENT ; PVIRG { Dvar(t,id) }
-	| c=constructeur 						{ Dconstr c }
-	| m=methode 								{ Dmeth m }
+	| t=typ ;  id=IDENT ; PVIRG { { loc=$starpos,$endpos ; desc = Dvar(t,id) } }
+	| c=constructeur 						{ { loc=$starpos,$endpos ; desc = Dconstr c } }
+	| m=methode 								{ { loc=$starpos,$endpos ; desc = Dmeth m } }
 
 constructeur:
 	| id=IDENT ; LPAR ; par=separated_list(VIRG,parametre) ; RPAR ; LAC ; ins=instruction* ; RAC
-		{ { nom=id ; params=par ; body=ins } }
+		{ { loc=$starpos,$endpos ; desc = { nom=id ; params=par ; body=ins } } }
 
 methode:
-	| p=proto ; LAC ; l=instruction* ; RAC { { info=p ; body=l } }
+	| p=proto ; LAC ; l=instruction* ; RAC
+		{ { loc=$starpos,$endpos ; desc = { info=p ; body=l } } }
 
 proto:
 	| b=pblc ; VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
-		{ { public=b ; typ=None ; nom=id ; params=l } }
+		{ { loc=$starpos,$endpos ; desc = { public=b ; typ=None ; nom=id ; params=l } } }
 	| b=pblc ; t=typ ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
-		{ { public=b ; typ=Some t ; nom=id ; params=l } }
+		{ { loc=$starpos,$endpos ; desc = { public=b ; typ=Some t ; nom=id ; params=l } } }
+
 %inline pblc:
-        |       { false }
-        | PUBLIC { true }
+        |       	{ false }
+        | PUBLIC	{ true }
 
 parametre:
-	| t=typ ; id=IDENT { { typ=t ; nom=id } }
+	| t=typ ; id=IDENT { { loc=$starpos,$endpos ; desc = { typ=t ; nom=id } } }
 
 typ: 
-	| BOOLEAN 	{ Jboolean }
-	| INT 			{ Jint }
-	| nt=ntype 	{ Jntype nt }
+	| BOOLEAN 	{ { loc=$starpos,$endpos ; desc = Jboolean } }
+	| INT 			{ { loc=$starpos,$endpos ; desc = Jint } }
+	| nt=ntype 	{ { loc=$starpos,$endpos ; desc = Jntype nt } }
 
 ntype:
 	| id=IDENT ; LT ; l=separated_nonempty_list(VIRG,ntype) ; GT
-							{ Ntype(id,l) }
-	| id=IDENT	{ Ntype(id,[]) }
+							{ { loc=$starpos,$endpos ; desc = Ntype(id,l) } }
+	| id=IDENT	{ { loc=$starpos,$endpos ; desc = Ntype(id,[]) } }
 
 expr:
-	| NULL 															{ Enil }
-	| es=expr_simple 										{ Esimple es }
-	| a=acces ; EQUAL ; e=expr 					{ Eequal(a,e) }
-	| NOT ; e=expr 											{ Eunop(Unot,e) }
-	| MINUS ; e=expr %prec UNMIN 				{ Eunop(Uneg,e) }
-	| e1=expr ; op=operateur ; e2=expr	{ Ebinop(e1,op,e2) }
+	| NULL 															{ { loc=$starpos,$endpos ; desc = Enil } }
+	| es=expr_simple 										{ { loc=$starpos,$endpos ; desc = Esimple es } }
+	| a=acces ; EQUAL ; e=expr 					{ { loc=$starpos,$endpos ; desc = Eequal(a,e) } }
+	| NOT ; e=expr 											{ { loc=$starpos,$endpos ; desc = Eunop(Unot,e) } }
+	| MINUS ; e=expr %prec UNMIN 				{ { loc=$starpos,$endpos ; desc = Eunop(Uneg,e) } }
+	| e1=expr ; op=operateur ; e2=expr	{ { loc=$starpos,$endpos ; desc = Ebinop(e1,op,e2) } }
 	
 acces:
-	| id=IDENT 												{ Aident id }
-	| es=expr_simple ; DOT ; id=IDENT { Achemin(es,id) }
+	| id=IDENT 												{ { loc=$starpos,$endpos ; desc = Aident id } }
+	| es=expr_simple ; DOT ; id=IDENT { { loc=$starpos,$endpos ; desc = Achemin(es,id) } }
 
 expr_simple:
-	| n=CONST 							{ ESint n }
-	| s=STR 								{ ESstr s }
-	| b=BOOL 								{ ESbool b }
-	| THIS 									{ ESthis }
-	| LPAR ; e=expr ; RPAR	{ ESexpr e }
+	| n=CONST 							{ { loc=$starpos,$endpos ; desc = ESint n } }
+	| s=STR 								{ { loc=$starpos,$endpos ; desc = ESstr s } }
+	| b=BOOL 								{ { loc=$starpos,$endpos ; desc = ESbool b } }
+	| THIS 									{ { loc=$starpos,$endpos ; desc = ESthis } }
+	| LPAR ; e=expr ; RPAR	{ { loc=$starpos,$endpos ; desc = ESexpr e } }
 	| NEW ; nt=ntype ; LPAR ; l=separated_list(VIRG,expr) ; RPAR 
-													{ ESnew(nt,l) }
+													{ { loc=$starpos,$endpos ; desc = ESnew(nt,l) } }
 	| a=acces ; LPAR ; l=separated_list(VIRG,expr) ; RPAR
-													{ ESacces(a,l) }
-	| a=acces 							{ ESacces a }
+													{ { loc=$starpos,$endpos ; desc = ESacces(a,l) } }
+	| a=acces 							{ { loc=$starpos,$endpos ; desc = ESacces a } }
 
 %inline operateur:
 	| x=EQU | x=CMP | x=RING 	{ binop x }
@@ -157,14 +159,16 @@ expr_simple:
 	| OR 											{ Bor }
 
 instruction:
-	| PVIRG																									{ Inil }
-	| es=expr_simple ; PVIRG																{ Isimple es }
-	| a=acces ; EQUAL ; e=expr ; PVIRG 											{ Idef(a,e) }
-	| t=typ ; id=IDENT ; PVIRG 															{ Iinit(t,id) }
-	| t=typ ; id=IDENT ; EQUAL ; e=expr ; PVIRG							{ Iinit_def(t,id,e) }
+	| PVIRG																						{ { loc=$starpos,$endpos ; desc = Inil } }
+	| es=expr_simple ; PVIRG													{ { loc=$starpos,$endpos ; desc = Isimple es } }
+	| a=acces ; EQUAL ; e=expr ; PVIRG 								{ { loc=$starpos,$endpos ; desc = Idef(a,e) } }
+	| t=typ ; id=IDENT ; PVIRG 												{ { loc=$starpos,$endpos ; desc = Iinit(t,id) } }
+	| t=typ ; id=IDENT ; EQUAL ; e=expr ; PVIRG				{ { loc=$starpos,$endpos ; desc = Iinit_def(t,id,e) } }
 	| IF ; LPAR ; e=expr ; RPAR ; i1=instruction ; ELSE ; i2=instruction %prec IF
-																													{ Iif(e,i1,i2) }
-	| IF ; LPAR ; e=expr ; RPAR ; ins=instruction	%prec IF 	{ Iif(e,ins,Inil) }
-	| WHILE ; LPAR ; e=expr ; RPAR ; ins=instruction				{ Iwhile(e,ins) }
-	| LAC ; l=instruction* ; RAC 														{ Ibloc l}
-	| RETURN ; e=expr? ; PVIRG															{ Ireturn e }
+																										{ { loc=$starpos,$endpos ; desc = Iif(e,i1,i2) } }
+	| IF ; LPAR ; e=expr ; RPAR ; ins=instruction	%prec IF
+																										{ { loc=$starpos,$endpos ; desc = Iif(e,ins,{ loc=
+																												Lexing.dummy_pos,Lexing.dummy_pos ; desc=Inil } ) } }
+	| WHILE ; LPAR ; e=expr ; RPAR ; ins=instruction	{ { loc=$starpos,$endpos ; desc = Iwhile(e,ins) } }
+	| LAC ; l=instruction* ; RAC											{ { loc=$starpos,$endpos ; desc = Ibloc l } }
+	| RETURN ; e=expr? ; PVIRG												{ { loc=$starpos,$endpos ; desc = Ireturn e } }

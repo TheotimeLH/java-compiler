@@ -1,6 +1,6 @@
 (* Syntaxe abstraite pour petit Java *)
 type 'a desc = 
-	{loc : Location.position * Location.position ; desc : 'a}
+	{loc : Lexing.position * Lexing.position ; desc : 'a}
 
 type ident = string
 

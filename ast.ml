@@ -73,4 +73,4 @@ type classe =
 				extds : ntype desc list ; body : proto desc list}
 	| Main of {nom : ident ; body : instr list} 
 
-type fichier = classe list
+type fichier = classe desc list

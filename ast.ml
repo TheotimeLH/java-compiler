@@ -7,8 +7,8 @@ type ident = string
 type ntype = Ntype of ident * ntype desc list
 
 type jtype = 
-	|	Jboolean | Jint 
-	| Jntype of ntype
+	| Jboolean | Jint 
+	| Jntype of ntype desc
 
 type unop =
   | Uneg (* -e *)
@@ -21,14 +21,14 @@ type binop =
 
 type expr =
 	|	Enil
-	|	Esimple of expr_simple
-	|	Eequal of acces desc * expr
+	|	Esimple of expr_simple desc
+	|	Eequal of acces desc * expr desc
 	|	Eunop of unop * expr desc 
 	|	Ebinop of expr desc * binop * expr desc 
 
 and acces = 
 	|	Aident of ident
-	|	Achemin of expr_simple desc * ident desc
+	|	Achemin of expr_simple desc * ident
 
 and expr_simple =
 	|	ESint of int	| ESstr of string	| ESbool of bool
@@ -60,7 +60,7 @@ type constructeur =
 	{nom : ident ; params : param desc list ; body : instr desc list}
 
 type decl = 
-	|	Dvar of jtype desc * ident desc	
+	|	Dvar of jtype desc * ident	
 	|	Dconstr of constructeur desc
 	|	Dmeth of methode desc
 
@@ -71,6 +71,6 @@ type classe =
 				extd : ntype desc option ; implmts : ntype desc list ; body : decl desc list}
 	|	Interface of {nom : ident ; params : paramtype desc list;
 				extds : ntype desc list ; body : proto desc list}
-	| Main of {nom : ident ; body : instr list} 
+	| Main of {nom : ident ; body : instr desc list} 
 
 type fichier = classe desc list

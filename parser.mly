@@ -38,7 +38,6 @@
 %left PLUS MINUS
 %left RING
 %right UNMIN NOT
-%left DOT
 %nonassoc IF
 %nonassoc ELSE
 
@@ -158,9 +157,9 @@ instruction:
 	| a=acces ; EQUAL ; e=expr ; PVIRG 											{ Idef(a,e) }
 	| t=typ ; id=IDENT ; PVIRG 															{ Iinit(t,id) }
 	| t=typ ; id=IDENT ; EQUAL ; e=expr ; PVIRG							{ Iinit_def(t,id,e) }
-	| IF ; LPAR ; e=expr ; RPAR ; i1=instruction ; ELSE ; i2=instruction %prec ELSE
+	| IF ; LPAR ; e=expr ; RPAR ; i1=instruction ; ELSE ; i2=instruction %prec IF
 																													{ Iif(e,i1,i2) }
-	| IF ; LPAR ; e=expr ; RPAR ; ins=instruction %prec IF	{ Iif(e,ins,Inil) }
+	| IF ; LPAR ; e=expr ; RPAR ; ins=instruction	{ Iif(e,ins,Inil) }
 	| WHILE ; LPAR ; e=expr ; RPAR ; ins=instruction				{ Iwhile(e,ins) }
 	| LAC ; l=instruction* ; RAC 														{ Ibloc l}
 	| RETURN ; e=expr? ; PVIRG															{ Ireturn e }

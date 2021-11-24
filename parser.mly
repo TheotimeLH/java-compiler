@@ -50,21 +50,26 @@
 %%
 
 fichier:
-	| l = class_+ ; EOF { match List.hd (List.rev l) with
-		| Main _ -> l
-		| _ -> failwith "error 404" }
+	| c = class_+ ; EOF
+		{ let rec aux l = match l with
+				|[{desc=Main _}] -> l
+				|{desc=Main _}::_ -> failwith "classe Main avant la fin"
+				|_::q -> aux q
+				|[] -> failwith "pas de classe Main"
+			in aux c }
         
 class_:
 	| CLASS ; id=IDENT ; pt=paramstype ; ext=extends ; imp=implements; LAC ; d=decl* ; RAC
-		{ Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } }
+		{ { loc=$starpos,$endpos ; desc = Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } } }
 	| INTERFACE ; id=IDENT ; pt=paramstype ;
 		ext=loption(preceded(EXTENDS,separated_nonempty_list(VIRG,ntype))) ;
 		LAC ; p=terminated(proto,PVIRG)* ; RAC 
-		{ Interface { nom=id ; params=pt ; extds=ext ; body=p } }
+		{ { loc=$starpos,$endpos ; desc = Interface { nom=id ; params=pt ; extds=ext ; body=p } } }
 	| CLASS ; m=IDENT ; LAC ; PUBLIC ; STATIC ; VOID ; n=IDENT ; LPAR ;
 	 	str=IDENT ; LCRO ; RCRO ; id=IDENT ; LAC ; l=instruction* ; RAC ; RAC
 		{ if m = "Main" && n = "main" && str = "String"
-		then Main { nom=id ; body=l } else failwith "error 404" }
+			then { loc=$starpos,$endpos ; desc = Main { nom=id ; body=l } }
+			else failwith "classe Main non reconnue" }
 
 %inline extends:
 	| 											{ None }

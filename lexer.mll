@@ -5,8 +5,9 @@
 	open Parser
 
 	type error = { loc = Lexing.position ; msg=String }
-	exception Lexer_error of error
-	exception Non_fini
+	exception Lexer_error of String
+	exception Non_fini of error
+	exception Interruption
 
 	let id_or_keyword = 
 		let keywords = Hashtbl.create 18 in
@@ -22,8 +23,7 @@
 				"void",VOID ; "while",WHILE ]	;
 		fun s -> try Hashtbl.find s keywords with Not_Found -> IDENT s
 	
-	let string_buffer = Buffer.create 1024 
-	
+	let string_buffer = Buffer.create 1024 	
 }
 
 let chiffre = ['0'-'9']
@@ -35,12 +35,13 @@ rule token = parse
 	|	[' ' '\t']+ | "//" [^'\n']*	{token lexbuf}
 	| '\n' 	{ new_line lexbuf ; token lexbuf }
 	| "/*"	{ let pos = lexbuf.lex_curr_p in
-						try comment lexbuf with Non_fini ->
-						raise (Lexing_error { loc=pos ; msg="commentaire non fermé" } ) }
+						try comment lexbuf with Interruption ->
+						raise (Non_fini { loc=pos ; msg="commentaire non fermé" } ) }
 	| '"'		{ let pos = lexbuf.lex_curr_p in
-						try STR (chaine lexbuf) with Non_fini -> 
-						raise (Lexing_error { loc=pos ; msg="chaîne de caractères non fermée" } ) }
-	| entier as s -> 	{ try Const (int_of_string s) with _ -> failwith "entier trop grand" }
+						try STR (chaine lexbuf) with Interruption -> 
+						raise (Non_fini { loc=pos ; msg="chaîne de caractères non fermée" } ) }
+	| entier as s -> 	{ try Const (int_of_string s) with _ ->
+											raise (Lexer_error "entier trop grand") }
 	|	ident as s -> 	{id_or_keyword s}
 	| '=' 	{EQUAL}
 	|	"||" 	{OR}
@@ -75,14 +76,14 @@ and chaine = parse
 	|	"\\n" 	{ Buffer.add_char string_buffer '\n' ; chaine lexbuf }
 	| "\\\"" 	{ Buffer.add_char string_buffer '"' ; chaine lexbuf }
 	| "\\\\" 	{ Buffer.add_char string_buffer '\\' ; chaine lexbuf }
-	| '\\' 		{ failwith "backslash illégal dans chaîne" }
-	|	'\n' 		{ failwith "retour chariot dans chaîne" }
-	| _ as c 	{ Buffer.add_char string_buffer c; chaine lexbuf }
-	| eof 		{raise Non_fini}
+	| '\\' 		{ raise (Lexer_error "backslash illégal dans chaîne") }
+	| '\n' 		{ raise (Lexer_error "retour chariot dans chaîne") }
+	| _ as c 	{ Buffer.add_char string_buffer c ; chaine lexbuf }
+	| eof 		{raise Interruption}
 
 
 and comment = parse
   | "*/" 	{token lexbuf}
 	| '\n' 	{ new_line lexbuf ; comment_lexbuf }
   | _  		{comment lexbuf}
-  | eof 	{raise Non_fini}
+  | eof 	{raise Interruption}

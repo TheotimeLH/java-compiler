@@ -40,8 +40,7 @@ rule token = parse
 	| '"'		{ let pos = lexbuf.lex_curr_p in
 						try STR (chaine lexbuf) with Non_fini -> 
 						raise (Lexing_error { loc=pos ; msg="chaîne de caractères non fermée" } ) }
-	| entier as s -> 	{ try Const (int_of_string s) with _ ->
-											raise (Lexing_error { loc=lexbuf.lex_curr_p ; msg="entier trop grand" } ) }
+	| entier as s -> 	{ try Const (int_of_string s) with _ -> failwith "entier trop grand" }
 	|	ident as s -> 	{id_or_keyword s}
 	| '=' 	{EQUAL}
 	|	"||" 	{OR}
@@ -76,8 +75,8 @@ and chaine = parse
 	|	"\\n" 	{ Buffer.add_char string_buffer '\n' ; chaine lexbuf }
 	| "\\\"" 	{ Buffer.add_char string_buffer '"' ; chaine lexbuf }
 	| "\\\\" 	{ Buffer.add_char string_buffer '\\' ; chaine lexbuf }
-	| '\\' 		{ raise (Lexing_error { loc=lexbuf.lex_curr_p ; msg="backslash illégal dans chaîne" } ) }
-	|	'\n' 		{ raise (Lexing_error { loc=lexbuf.lex_curr_p ; msg="retour chariot dans chaîne" } ) }
+	| '\\' 		{ failwith "backslash illégal dans chaîne" }
+	|	'\n' 		{ failwith "retour chariot dans chaîne" }
 	| _ as c 	{ Buffer.add_char string_buffer c; chaine lexbuf }
 	| eof 		{raise Non_fini}
 

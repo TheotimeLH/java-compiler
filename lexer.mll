@@ -4,7 +4,7 @@
 	open Lexing
 	open Parser
 
-	type error = { loc = Lexing.position ; msg=String }
+	type error = { loc = Lexing.position * Lexing.position; msg=String }
 	exception Lexer_error of String
 	exception Non_fini of error
 	exception Interruption
@@ -34,10 +34,10 @@ let entier = 0 | '1'-'9' chiffre*
 rule token = parse
 	|	[' ' '\t']+ | "//" [^'\n']*	{token lexbuf}
 	| '\n' 	{ new_line lexbuf ; token lexbuf }
-	| "/*"	{ let pos = lexbuf.lex_curr_p in
+	| "/*"	{ let pos = lexbuf.lex_start_p,lexbuf.lex_end_p in
 						try comment lexbuf with Interruption ->
 						raise (Non_fini { loc=pos ; msg="commentaire non fermé" } ) }
-	| '"'		{ let pos = lexbuf.lex_curr_p in
+	| '"'		{ let pos = lexbuf.lex_start_p,lexbuf.lex_end_p in
 						try STR (chaine lexbuf) with Interruption -> 
 						raise (Non_fini { loc=pos ; msg="chaîne de caractères non fermée" } ) }
 	| entier as s -> 	{ try Const (int_of_string s) with _ ->

@@ -2,6 +2,7 @@
 
 %{
 	open Ast
+	exception Parser_error of String
 %}
 
 /* Déclaration des tokens */
@@ -53,9 +54,9 @@ fichier:
 	| c = class_+ ; EOF
 		{ let rec aux l = match l with
 				|[{desc=Main _}] -> l
-				|{desc=Main _}::_ -> failwith "classe Main avant la fin"
+				|{desc=Main _}::_ -> raise (Parser_error "classe Main avant la fin")
 				|_::q -> aux q
-				|[] -> failwith "pas de classe Main"
+				|[] -> raise (Parser_error "pas de classe Main")
 			in aux c }
         
 class_:
@@ -69,7 +70,7 @@ class_:
 	 	str=IDENT ; LCRO ; RCRO ; id=IDENT ; LAC ; l=instruction* ; RAC ; RAC
 		{ if m = "Main" && n = "main" && str = "String"
 			then { loc=$starpos,$endpos ; desc = Main { nom=id ; body=l } }
-			else failwith "classe Main non reconnue" }
+			else raise (Parser_error "classe Main non reconnue") }
 
 %inline extends:
 	| 											{ None }

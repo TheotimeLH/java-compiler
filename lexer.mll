@@ -29,7 +29,7 @@
 let chiffre = ['0'-'9']
 let alpha = ['a'-'z' 'A'-'Z']
 let ident = (alpha | _) (alpha | chiffre | _)*
-let entier = 0 | '1'-'9' chiffre*
+let entier = '0' | ['1'-'9'] chiffre*
 
 rule token = parse
 	|	[' ' '\t']+ | "//" [^'\n']*	{token lexbuf}

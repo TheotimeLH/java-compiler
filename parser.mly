@@ -50,8 +50,7 @@
 
 %%
 
-fichier:
-	| c = class_+ ; EOF
+fichier: c=class_intf+ ; EOF
 		{ let rec aux l = match l with
 				|[{desc=Main _}] -> l
 				|{desc=Main _}::_ -> raise (Parser_error "classe Main avant la fin")
@@ -59,7 +58,7 @@ fichier:
 				|[] -> raise (Parser_error "pas de classe Main")
 			in aux c }
         
-class_:
+class_intf:
 	| CLASS ; id=IDENT ; pt=paramstype ; ext=extends ; imp=implements; LAC ; d=decl* ; RAC
 		{ { loc=$starpos,$endpos ; desc = Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } } }
 	| INTERFACE ; id=IDENT ; pt=paramstype ;

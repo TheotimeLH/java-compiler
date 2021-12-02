@@ -22,9 +22,11 @@
     les méthodes).
 
    Pour l'env de typage globale :
-       on a une Hashtbl : ident -> Set des méthodes * leurs types
+       on a une Hashtbl : ident -> MethSet
        (celles demandées dans les interfaces, et celles faites dans les classes)
-       de même Hashtbl : ident ->
+       de même Hashtbl : ident -> ChampSet 
+       (utilisée uniquement pour les classes)
+       
    
    Comment marche les constructeurs de sous classes, on appelle le sur constructeur
    pour s'occuper de tous les champs de la sur-classe, puis après on s'occupe des
@@ -33,7 +35,8 @@
    par défaut ? (Donc on doit vérifier que si on demande qlqch il est en public.
    Sachant que ça permet de modifier un champ. Du genre dico.machin= 2).
    Dans le main, si au final tjr arg, on s'en fout ?
-   Peut-on récupérer les déclarations au premier tour ? *)
+   Peut-on récupérer les déclarations au premier tour ? 
+   Que doit-on garder du typage ? *)
 
 open Ast
 open Ast_typing
@@ -45,6 +48,7 @@ type mark = NotVisited | InProgress | Visited
 type node = { id : ident ; mutable mark : mark ;
   mutable prec : node list ; mutable succ : node list}
 
+ 
 let type_fichier l_ci =
   (* ===== GRAPHES DES RELATIONS ENTRE LES C / LES I ===== *)
   (* On commence par récupérer toutes les relations, pour pouvoir traiter les I puis 
@@ -108,22 +112,31 @@ let type_fichier l_ci =
   List.iter graph_add_vg l_ci ;
 
   (* === Tri topologique === *)
-  let l_tri = ref [] in
-  let rec parcours n =
+  let rec parcours n l =
     if n.mark = NotVisited
     then (n.mark <- InProgress ;
-      List.iter parcours n.prec ;
+      List.iter parcours n.prec l ;
       n.mark <- Visited ;
-      l_tri := n.nom :: !l_tri)
+      l := n.nom :: !l)
     else if n.mark = InProgress
     then raise (Typing_error {loc = Hashtbl.find tab_pos_ci n.nom ;
           msg = "Il y a un cycle dans les héritages !"})
   in
-  parcours node_obj ;
+
+  let list_cl = ref [] in
+  parcours node_obj list_cl ;
+  
+  let list_intf = ref [] in
+  Hashtbl.iter (fun i n -> parcours n list_intf) graph_i ;
   
 
   (* ===== VERIFICATIONS DE TOUTES LES DÉCLARATIONS ===== *)
-  
+  (* === Les interfaces : la Hashtbl des meth demandées et vérifier héritages === *)
+  let intf_meth = Hashtbl.create 5 in
+
+  let fait_intf {nom ; params ; extds ; body} =
+    
+    
   
 
         

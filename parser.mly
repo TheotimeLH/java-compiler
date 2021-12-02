@@ -50,7 +50,7 @@
 
 %%
 
-fichier: c=class_intf+ ; EOF
+fichier: c=nonempty_list(class_intf) ; EOF
 		{ let rec aux l = match l with
 				|[{desc=Main _}] -> l
 				|{desc=Main _}::_ -> raise (Parser_error "classe Main avant la fin")
@@ -68,7 +68,7 @@ class_intf:
 	| CLASS ; m=IDENT ; LAC ; PUBLIC ; STATIC ; VOID ; n=IDENT ; LPAR ;
 	 	str=IDENT ; LCRO ; RCRO ; id=IDENT ; LAC ; l=instruction* ; RAC ; RAC
 		{ if m = "Main" && n = "main" && str = "String"
-			then { loc=$starpos,$endpos ; desc = Main { nom=id ; body=l } }
+			then { loc=$starpos,$endpos ; desc = Main l }
 			else raise (Parser_error "classe Main non reconnue") }
 
 %inline extends:
@@ -103,22 +103,18 @@ methode:
 		{ { loc=$starpos,$endpos ; desc = { info=p ; body=l } } }
 
 proto:
-	| b=pblc ; VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
-		{ { loc=$starpos,$endpos ; desc = { public=b ; typ=None ; nom=id ; params=l } } }
-	| b=pblc ; t=typ ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
-		{ { loc=$starpos,$endpos ; desc = { public=b ; typ=Some t ; nom=id ; params=l } } }
-
-%inline pblc:
-        |       	{ false }
-        | PUBLIC	{ true }
+	| PUBLIC? ; VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
+		{ { loc=$starpos,$endpos ; desc = { typ=None ; nom=id ; params=l } } }
+	| PUBLIC? ; t=typ ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
+		{ { loc=$starpos,$endpos ; desc = { typ=Some t ; nom=id ; params=l } } }
 
 parametre:
 	| t=typ ; id=IDENT { { loc=$starpos,$endpos ; desc = { typ=t ; nom=id } } }
 
 typ: 
-	| BOOLEAN 	{ { loc=$starpos,$endpos ; desc = Jboolean } }
+	| BOOLEAN 	{ { loc=$startpos,$endpos ; desc = Jboolean } }
 	| INT 			{ { loc=$starpos,$endpos ; desc = Jint } }
-	| nt=ntype 	{ { loc=$starpos,$endpos ; desc = Jntype nt } }
+	| nt=ntype 	{ { loc=$startpos,$endpos ; desc = Jntype nt } }
 
 ntype:
 	| id=IDENT ; LT ; l=separated_nonempty_list(VIRG,ntype) ; GT
@@ -159,16 +155,18 @@ expr_simple:
 	| OR 											{ Bor }
 
 instruction:
-	| PVIRG																						{ { loc=$starpos,$endpos ; desc = Inil } }
-	| es=expr_simple ; PVIRG													{ { loc=$starpos,$endpos ; desc = Isimple es } }
-	| a=acces ; EQUAL ; e=expr ; PVIRG 								{ { loc=$starpos,$endpos ; desc = Idef(a,e) } }
-	| t=typ ; id=IDENT ; PVIRG 												{ { loc=$starpos,$endpos ; desc = Iinit(t,id) } }
-	| t=typ ; id=IDENT ; EQUAL ; e=expr ; PVIRG				{ { loc=$starpos,$endpos ; desc = Iinit_def(t,id,e) } }
+	| PVIRG
+        { { loc=$startpos,$endpos ; desc = Inil } }
+	| es=expr_simple ; PVIRG
+	{ { loc=($startpos,$endpos) ; desc = Isimple es } }
+	| a=acces ; EQUAL ; e=expr ; PVIRG 								{ { loc=$startpos,$endpos ; desc = Idef(a,e) } }
+	| t=typ ; id=IDENT ; PVIRG 												{ { loc=$startpos,$endpos ; desc = Iinit(t,id) } }
+	| t=typ ; id=IDENT ; EQUAL ; e=expr ; PVIRG				{ { loc=$startpos,$endpos ; desc = Iinit_def(t,id,e) } }
 	| IF ; LPAR ; e=expr ; RPAR ; i1=instruction ; ELSE ; i2=instruction %prec IF
-																										{ { loc=$starpos,$endpos ; desc = Iif(e,i1,i2) } }
+																										{ { loc=$startpos,$endpos ; desc = Iif(e,i1,i2) } }
 	| IF ; LPAR ; e=expr ; RPAR ; ins=instruction	%prec IF
-																										{ { loc=$starpos,$endpos ; desc = Iif(e,ins,{ loc=
+																										{ { loc=$startpos,$endpos ; desc = Iif(e,ins,{ loc=
 																												Lexing.dummy_pos,Lexing.dummy_pos ; desc=Inil } ) } }
-	| WHILE ; LPAR ; e=expr ; RPAR ; ins=instruction	{ { loc=$starpos,$endpos ; desc = Iwhile(e,ins) } }
-	| LAC ; l=instruction* ; RAC											{ { loc=$starpos,$endpos ; desc = Ibloc l } }
-	| RETURN ; e=expr? ; PVIRG												{ { loc=$starpos,$endpos ; desc = Ireturn e } }
+	| WHILE ; LPAR ; e=expr ; RPAR ; ins=instruction	{ { loc=$startpos,$endpos ; desc = Iwhile(e,ins) } }
+	| LAC ; l=instruction* ; RAC											{ { loc=$startpos,$endpos ; desc = Ibloc l } }
+	| RETURN ; e=expr? ; PVIRG												{ { loc=$startpos,$endpos ; desc = Ireturn e } }

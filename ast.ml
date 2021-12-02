@@ -8,6 +8,7 @@ type ntype = Ntype of ident * ntype desc list
 
 type jtype = 
 	| Jboolean | Jint 
+	| Jtypenull
 	| Jntype of ntype desc
 
 type unop =

@@ -60,11 +60,11 @@ fichier: c=class_intf+ ; EOF
         
 class_intf:
 	| CLASS ; id=IDENT ; pt=paramstype ; ext=extends ; imp=implements; LAC ; d=decl* ; RAC
-		{ { loc=$starpos,$endpos ; desc = Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } } }
+		{ { loc=$startpos,$endpos ; desc = Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } } }
 	| INTERFACE ; id=IDENT ; pt=paramstype ;
 		ext=loption(preceded(EXTENDS,separated_nonempty_list(VIRG,ntype))) ;
 		LAC ; p=terminated(proto,PVIRG)* ; RAC 
-		{ { loc=$starpos,$endpos ; desc = Interface { nom=id ; params=pt ; extds=ext ; body=p } } }
+		{ { loc=$startpos,$endpos ; desc = Interface { nom=id ; params=pt ; extds=ext ; body=p } } }
 	| CLASS ; m=IDENT ; LAC ; PUBLIC ; STATIC ; VOID ; n=IDENT ; LPAR ;
 	 	str=IDENT ; LCRO ; RCRO ; id=IDENT ; LAC ; l=instruction* ; RAC ; RAC
 		{ if m = "Main" && n = "main" && str = "String"
@@ -73,17 +73,17 @@ class_intf:
 
 %inline extends:
 	| 											{ None }
-	| ext= EXTENDS ; ntype 	{ Some ext }
+	| EXTENDS ; nt=ntype 	{ Some nt }
 
 %inline implements:
-	| imp= IMPLEMENTS ; separated_nonempty_list(VIRG,ntype)
-		{ Some imp }
-	| { None }
+	| IMPLEMENTS ; l=separated_nonempty_list(VIRG,ntype)
+		{ l }
+	| { [] }
 
 %inline paramstype:
 	| LT ; l=separated_nonempty_list(VIRG,paramtype) ; GT
-		{ Some l }
-	| { None }
+		{ l }
+	| { [] }
 
 paramtype:
 	| id=IDENT ; l=loption(preceded(EXTENDS,separated_nonempty_list(ESP,ntype)))
@@ -113,7 +113,7 @@ parametre:
 
 typ: 
 	| BOOLEAN 	{ { loc=$startpos,$endpos ; desc = Jboolean } }
-	| INT 			{ { loc=$startos,$endpos ; desc = Jint } }
+	| INT 			{ { loc=$startpos,$endpos ; desc = Jint } }
 	| nt=ntype 	{ { loc=$startpos,$endpos ; desc = Jntype nt } }
 
 ntype:
@@ -143,12 +143,12 @@ expr_simple:
 													{ { loc=$startpos,$endpos ; desc = ESnew(nt,l) } }
 	| a=acces ; LPAR ; l=separated_list(VIRG,expr) ; RPAR
 													{ { loc=$startpos,$endpos ; desc = ESacces(a,l) } }
-	| a=acces 							{ { loc=$startpos,$endpos ; desc = ESacces a } }
+	| a=acces 							{ { loc=$startpos,$endpos ; desc = ESacces(a,[]) } }
 
 %inline operateur:
-	| x=EQU | x=CMP | x=RING 	{ binop x }
-	| LT 											{ binop Blt }
-	| GT 											{ binop Bgt }
+	| x=EQU | x=CMP | x=RING 	{ x }
+	| LT 											{ Blt }
+	| GT 											{ Bgt }
 	| PLUS 										{ Badd }
 	| MINUS 									{ Bsub }
 	| AND 										{ Band }

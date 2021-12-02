@@ -51,8 +51,7 @@ type instr =
 type param = {typ : jtype desc ; nom : ident}
 
 type proto = 
-	{public : bool ; typ : jtype desc option ;
-	nom : ident ; params : param desc list}
+	{typ : jtype desc option ; nom : ident ; params : param desc list}
 
 type methode = {info : proto desc ; body : instr desc list}
 
@@ -69,8 +68,8 @@ type paramtype = {nom : ident ; extds : ntype desc list}
 type classe = 
 	| Class of {nom : ident ; params : paramtype desc list ;
 				extd : ntype desc option ; implmts : ntype desc list ; body : decl desc list}
-	|	Interface of {nom : ident ; params : paramtype desc list;
+	| Interface of {nom : ident ; params : paramtype desc list;
 				extds : ntype desc list ; body : proto desc list}
-	| Main of {nom : ident ; body : instr desc list} 
+	| Main of instr desc list
 
 type fichier = classe desc list

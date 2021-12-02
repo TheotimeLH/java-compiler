@@ -2,7 +2,7 @@
 
 %{
 	open Ast
-	exception Parser_error of String
+	exception Parser_error of string
 %}
 
 /* Déclaration des tokens */
@@ -123,8 +123,8 @@ typ:
 
 ntype:
 	| id=IDENT ; LT ; l=separated_nonempty_list(VIRG,ntype) ; GT
-							{ { loc=$starpos,$endpos ; desc = Ntype(id,l) } }
-	| id=IDENT	{ { loc=$starpos,$endpos ; desc = Ntype(id,[]) } }
+							{ { loc=$starpos,$endpos ; desc = (id,l) } }
+	| id=IDENT	{ { loc=$starpos,$endpos ; desc = (id,[]) } }
 
 expr:
 	| NULL 															{ { loc=$starpos,$endpos ; desc = Enil } }

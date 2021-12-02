@@ -4,7 +4,7 @@ type 'a desc =
 
 type ident = string
 
-type ntype = Ntype of ident * ntype desc list
+type ntype = ident * ntype desc list
 
 type jtype = 
 	| Jboolean | Jint 

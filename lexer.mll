@@ -4,7 +4,7 @@
 	open Lexing
 	open Parser
 
-	type error = { loc = Lexing.position * Lexing.position; msg=String }
+	type error = { loc = Lexing.position * Lexing.position; msg=string }
 	exception Lexer_error of String
 	exception Non_fini of error
 	exception Interruption

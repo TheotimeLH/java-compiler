@@ -103,9 +103,13 @@ methode:
 		{ { loc=$startpos,$endpos ; desc = { info=p ; body=l } } }
 
 proto:
-	| PUBLIC? ; VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
+        | VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
 		{ { loc=$startpos,$endpos ; desc = { typ=None ; nom=id ; params=l } } }
-	| PUBLIC? ; t=typ ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
+	| t=typ ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
+		{ { loc=$startpos,$endpos ; desc = { typ=Some t ; nom=id ; params=l } } }
+	| PUBLIC ; VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
+		{ { loc=$startpos,$endpos ; desc = { typ=None ; nom=id ; params=l } } }
+	| PUBLIC ; t=typ ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
 		{ { loc=$startpos,$endpos ; desc = { typ=Some t ; nom=id ; params=l } } }
 
 parametre:
@@ -118,8 +122,8 @@ typ:
 
 ntype:
 	| id=IDENT ; LT ; l=separated_nonempty_list(VIRG,ntype) ; GT
-							{ { loc=$starpos,$endpos ; desc = Ntype (id,l) } }
-	| id=IDENT	{ { loc=$starpos,$endpos ; desc = Ntype (id,[]) } }
+							{ { loc=$startpos,$endpos ; desc = Ntype (id,l) } }
+	| id=IDENT	{ { loc=$startpos,$endpos ; desc = Ntype (id,[]) } }
 
 expr:
 	| NULL 															{ { loc=$startpos,$endpos ; desc = Enil } }
@@ -160,7 +164,7 @@ instruction:
 	| a=acces ; EQUAL ; e=expr ; PVIRG 								{ { loc=$startpos,$endpos ; desc = Idef(a,e) } }
 	| t=typ ; id=IDENT ; PVIRG 												{ { loc=$startpos,$endpos ; desc = Iinit(t,id) } }
 	| t=typ ; id=IDENT ; EQUAL ; e=expr ; PVIRG				{ { loc=$startpos,$endpos ; desc = Iinit_def(t,id,e) } }
-	| IF ; LPAR ; e=expr ; RPAR ; i1=instruction ; ELSE ; i2=instruction %prec IF
+	| IF ; LPAR ; e=expr ; RPAR ; i1=instruction ; ELSE ; i2=instruction
 																										{ { loc=$startpos,$endpos ; desc = Iif(e,i1,i2) } }
 	| IF ; LPAR ; e=expr ; RPAR ; ins=instruction	%prec IF
 																										{ { loc=$startpos,$endpos ; desc = Iif(e,ins,{ loc=

@@ -4,7 +4,7 @@
 open Lexing
 open Format
 
-let usage = "usage: mini-java [options] file.java"
+let usage = "usage: pjava [options] file.java"
 
 let parse_only = ref false
 let type_only = ref false

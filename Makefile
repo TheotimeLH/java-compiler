@@ -1,13 +1,28 @@
 
-all: main.exe
+all: pjava
 
-syntax: main.exe
-	for f in tests/syntax/good/*.java; do dune exec ./main.exe $$f; done
+tests: pjava syntax typing
 
-main.exe:
+syntax: syntax_bad syntax_good
+
+typing: typing_bad typing_good
+
+syntax_bad:
+	-for f in tests/syntax/bad/*.java ; do _build/default/main.exe --parse-only $$f; done
+
+syntax_good:
+	for f in tests/syntax/good/*.java; do _build/default/main.exe --parse-only $$f; done
+
+typing_bad:
+	-for f in tests/typing/bad/*.java ; do _build/default/main.exe --type-only $$f; done
+
+typing_good:
+	for f in tests/typing/good/*.java; do _build/default/main.exe --type-only $$f; done
+
+pjava:
 	dune build main.exe
 
 clean:
 	dune clean
 
-.PHONY: all clean syntax main.exe
+.PHONY: all clean pjava

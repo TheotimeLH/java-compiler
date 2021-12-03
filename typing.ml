@@ -41,7 +41,7 @@
 open Ast
 open Ast_typing
 
-type error = { loc = Lexing.position * Lexing.position; msg = string }
+type error = { loc : Lexing.position * Lexing.position; msg : string }
 exception Typing_error of error
 
 type mark = NotVisited | InProgress | Visited

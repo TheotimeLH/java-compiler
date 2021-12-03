@@ -2,7 +2,6 @@
 
 %{
 	open Ast
-	exception Parser_error of string
 %}
 
 /* Déclaration des tokens */

@@ -130,47 +130,96 @@ let type_fichier l_ci =
   Hashtbl.iter (fun i n -> parcours n list_intf) graph_i ;
   
   
-  (* ===== TOUT POUR LES INTERFACES ===== *)
-  (* On doit vérifier les héritages : si on demande une méthode, déjà présente dans 
-     une sur-interface, on doit demander le même type.
-     On doit vérifier que les types demandées sont bien fondés.  
-     
-     MAIS POUR VERIFIER BIEN FONDÉ, IL FAUT VÉRIFIER LES RELATIONS
-     ON NOUS ANNONCE A extends/implements B, on le croit *)
-  let intf_meth = Hashtbl.create 5 in
-
-  let fait_intf {nom ; params ; extds ; body} =
-    in
-  (* Attention, là on utilise les relations, on ne les vérifie pas *)
+  (* ===== Sous-type / Extends / Implements Généralisées  ===== *)
+  (* ATTENTION, là on utilise les relations, on ne les vérifie pas *)
   
+  (* === Pour les substitutions des paramstype avec sigma === *)
+  let fait_sigma ci l_ntypes =
+    let sigma = Hashtbl.create (List.length l_ntypes) in
+    let l_params = Hashtbl.find ci_params ci in
+    List.iter2 
+      (fun param ntype -> Hashtbl.add sigma param.nom ntype) 
+      l_params l_ntypes ;
+    sigma
+  in
 
-  let sous_type jtyp1 jtyp2 = match jtyp1,jtyp2 with
+  let rec substi_list sigma l_ntypes =
+    List.map (fun {loc ; desc} -> {loc=loc  ; desc=substi sigma desc}) l_ntypes
+  and substi sigma (Ntype (id,l)) =
+    if Hashtbl.mem sigma id
+      then Ntype( (Hashtbl.find sigma id), substi_list sigma l)
+    else Ntype(id, substi_list sigma l)
+  in 
+ 
+  (* === Extends généralisée === *)
+  let rec extends dci1 dci2 env_typage =
+    (* Attention, on passe par un env, car on peut avoir id1 = T paramtype *)
+    (dci1.desc = dci2.desc) || begin
+    let Ntype (id1,l_ntypes1) = dci1.desc in
+    let Ntype (id2,l_ntypes2) = dci2.desc in
+    if not (IdSet.mem env_typage.ci id1)
+      then raise (Typing_error {loc = dci1.loc ;
+        msg = "Classe ou interface inconnue dans le contexte"}) ;
+    if not (IdSet.mem env_typage.ci id2)
+      then raise (Typing_error {loc = dci2.loc ;
+        msg = "Classe ou interface inconnue dans le contexte"}) ;
+
+    let l_precs1 = Hashtbl.find env_typage.extends id1 in
+    let sigma = 
+      if IdSet.mem env_typage.paramstype id1
+      then Hashtbl.create 0 (* table de subsitution vide *)
+      else fait_sigma id1 l_ntypes1
+    in
+    List.exists
+      (fun dci -> extends dci dci2 env_typage)  
+      (substi_list sigma l_precs1)
+    end
+  in
+
+  (* === Implements généralisée === *)
+  let rec implements dc di env_typage = 
+    let Ntype (id_c,l_ntypes_c) = dc.desc in
+    let Ntype (id_i,l_ntypes_i) = di.desc in
+    if not (IdSet.mem env_typage.c id_c)
+      then raise (Typing_error {loc = dc.loc ;
+        msg = "Classe inconnue dans le contexte"}) ;
+    if not (IdSet.mem env_typage.i id_i)
+      then raise (Typing_error {loc = di.loc ;
+        msg = "Interface inconnue dans le contexte"}) ;
+
+    let l_implems = Hashtbl.find env_typage.implements id_c in
+    let sigma = 
+      if IdSet.mem env_typage.paramstype id_c
+      then Hashtbl.create 0 (* table de subsitution vide *)
+      else fait_sigma id_c l_ntypes_c
+    in
+    try
+      let di' = List.find 
+        (fun {desc = Ntype(id_i',_)} -> (id_i'=id_i))
+        l_implems in
+      let Ntype(id_i',l_ntypes_i') = di'.desc in
+      (l_ntypes_i = substi_list sigma l_ntypes_i')
+    with
+      | Not_found ->
+          let l_precs = Hashtbl.find env_typage.extends id_c in
+          List.exists
+            (fun dc' -> implements dc' di env_typage)
+            (substi_list sigma l_precs)
+            (* En soit il y a au plus une sur-classe *)
+  in
+      
+
+
+
+
+
+
+ let sous_type jtyp1 jtyp2 = match jtyp1,jtyp2 with
     | Jtypenull,_ 
     | Jboolean,Jboolean | Jint,Jint -> true
     | Jntype {desc1},Jntype {desc2} when desc1 = desc2 -> true
     | Jntype { 
-    
 
-  let rec sous_ci ntyp1 ntyp2 env_typage = (* ~ extends généralisé *)
-    (* Attention, on passe par un env, car on peut avoir id1 = T paramtype *)
-    let Ntype (id1,l_ntyp1) = ntyp1.desc in
-    let Ntype (id2,l_ntyp2) = ntyp2.desc in
-    if not Hashtbl.mem env_typage.heritage id1 
-      then raise (Typing_error {loc = ntyp1.loc ;
-        msg = "Classe ou interface inconnue dans le contexte"}) ;
-    let precs1 = Hashtbl.find env_typage.heritage id1 in 
-    if node_ci = node_obj then id2 = "Object"
-    else 
-      List.exists (fun nty ->) node_ci.prec 
-        
-
-
-
-  let rec implem_bien c i =
-    c <> "Object" &&
-    ((NtypeSet.mem i (Hashtbl.find c_implems c))
-    || (let node_c = Hashtbl.find graph_c c in
-      implem_bien (List.hd node_c.prec).id i
 
         
     

@@ -3,6 +3,8 @@ open Ast
 (* On garde jtype et ntype *)
 (* On garde les positions avec desc pour pouvoir la donner *)
 
+module IdSet = Set.Make(String)
+
 type ty_methode = 
   {nom : ident ;
   typ : jtype desc option ;

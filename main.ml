@@ -32,21 +32,28 @@ let () =
         let p = Parser.fichier Lexer.token lb in
         close_in ch ;
         if !parse_only then exit 0 ;
+        (*
         let t = Typing.fichier p in
         if !type_only then exit 0 ;
+        *)
         exit 0
     with
         | Lexer.Non_fini { loc=pos ; msg=s } ->
           report pos ;
           eprintf "erreur lexicale: %s@." s ;
           exit 1
-        | Parser.Parser_error s ->
-          report (lexeme_start_p lb,lexeme_end_p lb) ;
-          eprintf "erreur syntaxique: %s@." s ;
-          exit 1
         | Lexer.Lexer_error s ->
           report (lexeme_start_p lb,lexeme_end_p lb) ;
           eprintf "erreur lexicale: %s@." s ;
           exit 1
-        | Typing.Type_error _ -> exit 1
+        | Ast.Parser_error s ->
+          report (lexeme_start_p lb,lexeme_end_p lb) ;
+          eprintf "erreur syntaxique: %s@." s ;
+          exit 1
+          (*
+        | Typing.Typing_error { loc=pos ; msg=s } ->
+          report pos ;
+          eprintf "erreur lexicale: %s@." s ;
+          exit 1
+          *)
         

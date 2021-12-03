@@ -71,7 +71,7 @@ class_intf:
 			else raise (Parser_error "classe Main non reconnue") }
 
 %inline extends:
-	| 											{ None }
+	| 										{ None }
 	| EXTENDS ; nt=ntype 	{ Some nt }
 
 %inline implements:
@@ -102,7 +102,7 @@ methode:
 		{ { loc=$startpos,$endpos ; desc = { info=p ; body=l } } }
 
 proto:
-        | VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
+  | VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
 		{ { loc=$startpos,$endpos ; desc = { typ=None ; nom=id ; params=l } } }
 	| t=typ ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
 		{ { loc=$startpos,$endpos ; desc = { typ=Some t ; nom=id ; params=l } } }

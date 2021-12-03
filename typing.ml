@@ -47,8 +47,8 @@ exception Typing_error of error
 type mark = NotVisited | InProgress | Visited
 type node = { id : ident ; mutable mark : mark ;
   mutable prec : node list ; mutable succ : node list}
-
  
+
 let type_fichier l_ci =
   (* ===== GRAPHES DES RELATIONS ENTRE LES C / LES I ===== *)
   (* On commence par récupérer toutes les relations, pour pouvoir traiter les I puis 
@@ -144,7 +144,8 @@ let type_fichier l_ci =
   in
 
   let rec substi_list sigma l_ntypes =
-    List.map (fun {loc ; desc} -> {loc=loc  ; desc=substi sigma desc}) l_ntypes
+    List.map (fun dn -> 
+      {loc=dn.loc  ; desc=substi sigma dn.desc}) l_ntypes
   and substi sigma (Ntype (id,l)) =
     if Hashtbl.mem sigma id
       then Ntype( (Hashtbl.find sigma id), substi_list sigma l)
@@ -154,7 +155,7 @@ let type_fichier l_ci =
   (* === Extends généralisée === *)
   let rec extends dci1 dci2 env_typage =
     (* Attention, on passe par un env, car on peut avoir id1 = T paramtype *)
-    (dci1.desc = dci2.desc) || begin
+    (Ntype.equal dci1.desc dci2.desc) || begin
     let Ntype (id1,l_ntypes1) = dci1.desc in
     let Ntype (id2,l_ntypes2) = dci2.desc in
     if not (IdSet.mem env_typage.ci id1)
@@ -195,10 +196,10 @@ let type_fichier l_ci =
     in
     try
       let di' = List.find 
-        (fun {desc = Ntype(id_i',_)} -> (id_i'=id_i))
+        (fun ({desc = Ntype(id_i',_)} : ntype desc) -> (id_i'=id_i))
         l_implems in
       let Ntype(id_i',l_ntypes_i') = di'.desc in
-      (l_ntypes_i = substi_list sigma l_ntypes_i')
+      Ntype.equal di.desc (Ntype(id_i',substi_list sigma l_ntypes_i'))
     with
       | Not_found ->
           let l_precs = Hashtbl.find env_typage.extends id_c in
@@ -207,27 +208,91 @@ let type_fichier l_ci =
             (substi_list sigma l_precs)
             (* En soit il y a au plus une sur-classe *)
   in
-      
 
-
-
-
-
-
- let sous_type jtyp1 jtyp2 = match jtyp1,jtyp2 with
+  (* === Sous-Type === *)
+  let rec sous_type jtyp1 jtyp2 env_typage = match jtyp1,jtyp2 with
     | Jtypenull,_ 
     | Jboolean,Jboolean | Jint,Jint -> true
-    | Jntype {desc1},Jntype {desc2} when desc1 = desc2 -> true
-    | Jntype { 
-
-
+    | Jntype {desc = d1},Jntype {desc = d2} when Ntype.equal d1 d2 -> true
+    | Jntype dci, _ ->
+        let Ntype (id_ci,l_ntypes_ci) = dci.desc in
+        if not (IdSet.mem env_typage.ci id_ci)
+          then raise (Typing_error {loc = dci.loc ;
+            msg = "Classe/interface inconnue dans le contexte"}) ;
         
-    
+        let sigma = 
+          if IdSet.mem env_typage.paramstype id_ci
+          then Hashtbl.create 0 (* table de subsitution vide *)
+          else fait_sigma id_ci l_ntypes_ci
+        in    
+        let l_precs = Hashtbl.find env_typage.extends id_ci in
+        (List.exists (* Règle 4 des sous-types *)
+          (fun dci' -> sous_type (Jntype dci') jtyp2 env_typage)
+          (substi sigma l_precs)  )
+        || begin match jtyp2 with (* Potentiellement la règle 5 *)
+            | Jntype di ->
+                let Ntype (id_i,l_ntypes_i) = di.desc in
+                if not (IdSet.mem env_typage.ci id_i)
+                  then raise (Typing_error {loc = di.loc ;
+                    msg = "Classe/interface inconnue dans le contexte"}) ;
+                (* La règle 5 porte sur une classe avec une interface *)
+                (IdSet.mem env_typage.i id_i)
+                && (IdSet.mem env_typage.c id_ci)
+                && begin 
+                  (* Il faut C implems I et en plus pile la bonne substitution
+                     donc encore une fois, on va remonter l'arbre d'héritage,
+                     jusqu'à trouver C implems I<theta>, puis on regarde si en 
+                     appliquant sigma à I<theta> on retombe sur notre I.
+                     Si j'ai le temps, vu le nombre de fois qu'on refait la même
+                     chose, ça serait sûrement mieux de stocker l'extends généralisée
+                     et pareil implems généralisée. :/ *)
+                  
+                  let rec retrouve_i c = (* on n'utilise que les id *)
+                    let l_implems = Hashtbl.find env_typage.implements c in
+                    try
+                      Some (List.find
+                        (fun ({desc = Ntype (id_i',_)} : ntype desc) ->
+                          id_i' = id_i)
+                        l_implems)
+                    with
+                      | Not_found ->
+                          let rec recup_fst_ok = function
+                            | [] -> None
+                            | (Some i)::_ -> Some i
+                            | None :: q -> recup_fst_ok q
+                          in
+                          recup_fst_ok (List.map
+                            (fun ({desc = Ntype (c',_)} : ntype desc) ->
+                              retrouve_i c' )
+                            (Hashtbl.find env_typage.extends c))
+                  in
+                  match (retrouve_i id_ci) with
+                    | None -> false
+                    | Some di' -> 
+                        let ntype' = substi sigma (di').desc in   
+                        Ntype.equal di.desc ntype' 
+                end
+            | _ -> false
+          end
+  in
+
+  (* === Bien Fondé === *)
   let rec bf env_typage = function
     | Jboolean | Jint -> true
-    | Jntype {loc ; desc = Ntype (id,ntl)} ->
-        try 
-          let paramstypes = Hashtbl.find ci_params id in
+    | Jntype {loc ; desc = Ntype (id,l_ntypes)} ->
+        if not (IdSet.mem env_typage.ci id)
+          then raise (Typing_error {loc=loc ;
+            msg = "Classe ou Interface inconnue"}) ;
+        (l_ntypes = [])
+        || (* id a des paramtypes, en particulier id n'est pas un paramtype *)
+        let params = Hashtbl.find ci_params id in
+        
+
+
+
+
+
+          let params = Hashtbl.find ci_params id in
           let verifie theta {nom ; extds} =
             
             

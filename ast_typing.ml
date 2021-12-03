@@ -19,7 +19,16 @@ end
 module MethSet = Set.Make(Methode)
 
 module Ntype = struct
-  type t = ntype 
+  type t = ntype
+  let rec equal (Ntype (id1,l1)) (Ntype (id2,l2)) =
+    try
+      (id1=id2) &&
+      (List.for_all2 
+        (fun {desc = n1'} {desc = n2'} -> equal n1' n2')
+        l1 l2 )
+    with
+      | Invalid_argument -> false
+      
 end
 
 module NtypeSet = Set.Make(Ntype)

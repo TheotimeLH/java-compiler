@@ -9,19 +9,17 @@
 	exception Non_fini of error
 	exception Interruption
 
-	let id_or_keyword = 
-		let keywords = Hashtbl.create 18 in
-		List.iter (fun (s,t) -> Hashtbl.add keywords s t)
-			[ "boolean",BOOLEAN ; "class",CLASS ;
-				"else",ELSE ; "extends",EXTENDS ;
-				"false",BOOL false ; "if",IF	;
-				"implements",IMPLEMENTS ; "int",INT ;
-				"interface",INTERFACE ; "new",NEW ;
-				"null",NULL ; "public",PUBLIC ;
-				"return",RETURN; "static",STATIC ;
-				"this",THIS ; "true",BOOL true ;
-				"void",VOID ; "while",WHILE ]	;
-		fun s -> try Hashtbl.find keywords s with Not_found -> IDENT s
+	let keywords = Hashtbl.create 18
+ 	let () = List.iter (fun (s,t) -> Hashtbl.add keywords s t)
+                 	[ "boolean",BOOLEAN ; "class",CLASS ;
+		        "else",ELSE ; "extends",EXTENDS ;
+		        "false",BOOL false ; "if",IF	;
+		        "implements",IMPLEMENTS ; "int",INT ;
+		        "interface",INTERFACE ; "new",NEW ;
+		        "null",NULL ; "public",PUBLIC ;
+		        "return",RETURN; "static",STATIC ;
+		        "this",THIS ; "true",BOOL true ;
+		        "void",VOID ; "while",WHILE ]
 	
 	let string_buffer = Buffer.create 1024 	
 }
@@ -32,7 +30,7 @@ let ident = (alpha | _) (alpha | chiffre | _)*
 let entier = '0' | ['1'-'9'] chiffre*
 
 rule token = parse
-	|	[' ' '\t']+ | "//" [^'\n']*	{token lexbuf}
+	| [' ' '\t']+ | "//" [^'\n']*	{token lexbuf}
 	| '\n' 	{ new_line lexbuf ; token lexbuf }
 	| "/*"	{ let pos = lexbuf.lex_start_p,lexbuf.lex_curr_p in
 						try comment lexbuf with Interruption ->
@@ -42,38 +40,40 @@ rule token = parse
 						raise (Non_fini { loc=pos ; msg="chaîne de caractères non fermée" } ) }
 	| entier as s 	{ try CONST (int_of_string s) with _ ->
 											raise (Lexer_error "entier trop grand") }
-	| ident as s 	{id_or_keyword s}
+	| ident as s 	{try Hashtbl.find keywords s with Not_found -> IDENT s}
 	| '=' 	{EQUAL}
-	|	"||" 	{OR}
-	|	"&&" 	{AND}
+	| "||" 	{OR}
+	| "&&" 	{AND}
 	| "==" 	{EQU Beq}
 	| "!=" 	{EQU Bneq}	
-	|	"<=" 	{CMP Ble}
+	| "<=" 	{CMP Ble}
 	| ">=" 	{CMP Bge}
-	|	'+' 	{PLUS}
-	|	'-' 	{MINUS}
-	|	'*' 	{RING Bmul}
-	|	'/' 	{RING Bdiv}
-	|	'%' 	{RING Bmod}
-	|	'!' 	{NOT}
+	| '+' 	{PLUS}
+	| '-' 	{MINUS}
+	| '*' 	{RING Bmul}
+	| '/' 	{RING Bdiv}
+	| '%' 	{RING Bmod}
+	| '!' 	{NOT}
 	| '.' 	{DOT}
 	| '<' 	{LT}
 	| '>' 	{GT}
-	|	'(' 	{LPAR}
-	|	')' 	{RPAR}
-	|	'[' 	{LCRO}
-	|	']' 	{RCRO}
-	|	'{' 	{LAC}
-	|	'}' 	{RAC}
+	| '(' 	{LPAR}
+	| ')' 	{RPAR}
+	| '[' 	{LCRO}
+	| ']' 	{RCRO}
+	| '{' 	{LAC}
+	| '}' 	{RAC}
 	| ',' 	{VIRG}
-	|	';' 	{PVIRG}
-	|	'&' 	{ESP}
+	| ';' 	{PVIRG}
+	| '&' 	{ESP}
+        | _     { raise (Lexer_error "illegal character") }
+        | eof   {EOF}
 
 
 and chaine = parse
 	| '"' 		{ let s = Buffer.contents string_buffer in
 							Buffer.reset string_buffer ; s }
-	|	"\\n" 	{ Buffer.add_char string_buffer '\n' ; chaine lexbuf }
+	| "\\n" 	{ Buffer.add_char string_buffer '\n' ; chaine lexbuf }
 	| "\\\"" 	{ Buffer.add_char string_buffer '"' ; chaine lexbuf }
 	| "\\\\" 	{ Buffer.add_char string_buffer '\\' ; chaine lexbuf }
 	| '\\' 		{ raise (Lexer_error "backslash illégal dans chaîne") }

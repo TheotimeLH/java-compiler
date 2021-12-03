@@ -15,9 +15,9 @@ let spec =
 let file = ref ""
 let () =
     Arg.parse spec (fun s -> file:=s) usage ;
-    if !file = "" then raise (Arg.Bad "aucun fichier renseigné") ;
+    if !file = "" then (eprintf " Aucun fichier renseigné " ; exit 1) ;
     if not (Filename.check_suffix !file ".java")
-    then raise (Arg.Bad "pas d'extension .java")
+    then (eprintf " Pas d'extension .java " ; exit 1)
 
 let report (s,e) =
     let l = s.pos_lnum in
@@ -29,7 +29,7 @@ let () =
     let ch = open_in !file in
     let lb = Lexing.from_channel ch in
     try
-        let p = Parser.fichier Lexer.token lb in
+        let _ = Parser.fichier Lexer.token lb in
         close_in ch ;
         if !parse_only then exit 0 ;
         (*
@@ -56,4 +56,3 @@ let () =
           eprintf "erreur lexicale: %s@." s ;
           exit 1
           *)
-        

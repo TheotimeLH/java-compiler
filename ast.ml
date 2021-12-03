@@ -1,4 +1,7 @@
 (* Syntaxe abstraite pour petit Java *)
+
+exception Parser_error of string
+
 type 'a desc = 
 	{loc : Lexing.position * Lexing.position ; desc : 'a}
 

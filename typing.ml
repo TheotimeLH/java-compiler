@@ -58,7 +58,7 @@ let type_fichier l_ci =
   let tab_pos_ci = Hashtbl.create 10 in
   let graph_c = Hashtbl.create 5 in
   let graph_i = Hashtbl.create 5 in
-  
+
   (* === Ajout des noeuds === *)
   let node_obj = {id="Object" ; mark = NotVisited ; prec=[] ; succ=[]} in
 
@@ -68,18 +68,18 @@ let type_fichier l_ci =
       if Hashtbl.mem graph_c nom || Hashtbl.mem graph_i nom
         then raise (Typing_error {loc = ci.loc ; 
             msg = "Deux classes/interfaces ont le même nom"})
-      else if nom = "Main" 
+      else if nom = "Main" || nom = "Object" || nom = "String" 
         then raise (Typing_error {loc = ci.loc ; 
-            msg = "Une autre classe que la Main porte le nom Main"})
+            msg = "Deux classes Main ou Object ou String"})
       else Hashtbl.add graph_c nom {id=nom ; mark = NotVisited ; prec=[] ; succ=[]}
     | Interface {nom} ->
       Hashtbl.add tab_pos_ci nom ci.loc ;
       if Hashtbl.mem graph_c nom || Hashtbl.mem graph_i nom
         then raise (Typing_error {loc = ci.loc ; 
             msg = "Deux classes/interfaces ont le même nom"})
-      else if nom = "Main" 
+      else if nom = "Main" || nom = "Object" || nom = "String"
         then raise (Typing_error {loc = ci.loc ; 
-            msg = "Une interface porte le nom Main"})
+            msg = "Une interface porte le nom Main, Object ou String"})
       else Hashtbl.add graph_i nom {id=nom ; mark = NotVisited ; prec=[] ; succ=[]}
     | Main _ -> 
       Hashtbl.add tab_pos_ci "Main" ci.loc ; 
@@ -99,7 +99,7 @@ let type_fichier l_ci =
   let graph_add_vg ci = match ci.desc with
     | Class {nom ; extd=None} -> 
         let node_c = Hashtbl.find graph_c nom in
-        node_c.prec <- [node_obj] ; (* Utile ? *)
+        node_c.prec <- [node_obj] ; 
         node_obj.succ <- node_c :: node_obj.succ
     | Class {nom ; extd=Some cp} -> 
         let node_id1 = Hashtbl.find graph_c nom in
@@ -129,14 +129,69 @@ let type_fichier l_ci =
   let list_intf = ref [] in
   Hashtbl.iter (fun i n -> parcours n list_intf) graph_i ;
   
-
-  (* ===== VERIFICATIONS DE TOUTES LES DÉCLARATIONS ===== *)
-  (* === Les interfaces : la Hashtbl des meth demandées et vérifier héritages === *)
+  
+  (* ===== TOUT POUR LES INTERFACES ===== *)
+  (* On doit vérifier les héritages : si on demande une méthode, déjà présente dans 
+     une sur-interface, on doit demander le même type.
+     On doit vérifier que les types demandées sont bien fondés.  
+     
+     MAIS POUR VERIFIER BIEN FONDÉ, IL FAUT VÉRIFIER LES RELATIONS
+     ON NOUS ANNONCE A extends/implements B, on le croit *)
   let intf_meth = Hashtbl.create 5 in
 
   let fait_intf {nom ; params ; extds ; body} =
+    in
+  (* Attention, là on utilise les relations, on ne les vérifie pas *)
+  
+
+  let sous_type jtyp1 jtyp2 = match jtyp1,jtyp2 with
+    | Jtypenull,_ 
+    | Jboolean,Jboolean | Jint,Jint -> true
+    | Jntype {desc1},Jntype {desc2} when desc1 = desc2 -> true
+    | Jntype { 
     
+
+  let rec sous_ci ntyp1 ntyp2 env_typage = (* ~ extends généralisé *)
+    (* Attention, on passe par un env, car on peut avoir id1 = T paramtype *)
+    let Ntype (id1,l_ntyp1) = ntyp1.desc in
+    let Ntype (id2,l_ntyp2) = ntyp2.desc in
+    if not Hashtbl.mem env_typage.heritage id1 
+      then raise (Typing_error {loc = ntyp1.loc ;
+        msg = "Classe ou interface inconnue dans le contexte"}) ;
+    let precs1 = Hashtbl.find env_typage.heritage id1 in 
+    if node_ci = node_obj then id2 = "Object"
+    else 
+      List.exists (fun nty ->) node_ci.prec 
+        
+
+
+
+  let rec implem_bien c i =
+    c <> "Object" &&
+    ((NtypeSet.mem i (Hashtbl.find c_implems c))
+    || (let node_c = Hashtbl.find graph_c c in
+      implem_bien (List.hd node_c.prec).id i
+
+        
     
+  let rec bf env_typage = function
+    | Jboolean | Jint -> true
+    | Jntype {loc ; desc = Ntype (id,ntl)} ->
+        try 
+          let paramstypes = Hashtbl.find ci_params id in
+          let verifie theta {nom ; extds} =
+            
+            
+          List.iter2 verifie ntl paramstypes ;
+        with 
+          | Not_found -> raise (Typing_error {loc=loc ;
+              msg = "Classe ou Interface inconnue"})
+          | Invalid_argument -> raise (Typing_error {loc=loc;
+              msg = "Le nombre de ntypes donnés ne correspond pas au \
+                  au nombre de paramtype de cette classe / interface"})
+
+
+  (* ===== VERIFICATIONS DE TOUTES LES DÉCLARATIONS ===== *)
   
 
         

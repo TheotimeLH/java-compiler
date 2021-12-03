@@ -4,9 +4,9 @@ open Ast
 (* On garde les positions avec desc pour pouvoir la donner *)
 
 type ty_methode = 
-  {nom : ident ; public : bool ; 
+  {nom : ident ;
   typ : jtype desc option ;
-  type_params : jtype desc list}
+  types_params : jtype desc list}
 
 module Methode = struct
   type t = ty_methode
@@ -16,3 +16,8 @@ end
 
 module MethSet = Set.Make(Methode)
 
+module Ntype = struct
+  type t = ntype 
+end
+
+module NtypeSet = Set.Make(Ntype)

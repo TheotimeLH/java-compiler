@@ -39,7 +39,7 @@ rule token = parse
 						try STR (chaine lexbuf) with Interruption -> 
 						raise (Non_fini { loc=pos ; msg="chaîne de caractères non fermée" } ) }
 	| entier as s 	{ try CONST (int_of_string s) with _ ->
-											raise (Lexer_error "entier trop grand") }
+											raise (Lexer_error "constante entière trop grande") }
 	| ident as s 	{try Hashtbl.find keywords s with Not_found -> IDENT s}
 	| '=' 	{EQUAL}
 	| "||" 	{OR}
@@ -66,8 +66,8 @@ rule token = parse
 	| ',' 	{VIRG}
 	| ';' 	{PVIRG}
 	| '&' 	{ESP}
-        | _     { raise (Lexer_error "illegal character") }
         | eof   {EOF}
+        | _ as c        { raise (Lexer_error ("caractère illégal: " ^ String.make 1 c) ) }
 
 
 and chaine = parse
@@ -76,8 +76,8 @@ and chaine = parse
 	| "\\n" 	{ Buffer.add_char string_buffer '\n' ; chaine lexbuf }
 	| "\\\"" 	{ Buffer.add_char string_buffer '"' ; chaine lexbuf }
 	| "\\\\" 	{ Buffer.add_char string_buffer '\\' ; chaine lexbuf }
-	| '\\' 		{ raise (Lexer_error "backslash illégal dans chaîne") }
-	| '\n' 		{ raise (Lexer_error "retour chariot dans chaîne") }
+	| '\\' 		{ raise (Lexer_error "backslash illégal dans chaîne de caractère") }
+	| '\n' 		{ raise (Lexer_error "retour chariot dans chaîne de caractère") }
 	| _ as c 	{ Buffer.add_char string_buffer c ; chaine lexbuf }
 	| eof 		{raise Interruption}
 

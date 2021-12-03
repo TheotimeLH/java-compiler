@@ -54,18 +54,18 @@ fichier: c=class_intf+ ; EOF
 				|[{desc=Main _}] -> l
 				|{desc=Main _}::_ -> raise (Parser_error "classe Main avant la fin")
 				|_::q -> aux q
-				|[] -> raise (Parser_error "pas de classe Main")
+				|[] -> raise (Parser_error "aucune classe Main")
 			in aux c }
         
 class_intf:
-	| CLASS ; id=IDENT ; pt=paramstype ; ext=extends ; imp=implements; LAC ; d=decl* ; RAC
+	| CLASS ; id=IDENT ; pt=paramstype ; ext=extends ; imp=implements ; LAC ; d=decl* ; RAC
 		{ { loc=$startpos,$endpos ; desc = Class { nom=id ; params=pt ; extd=ext ; implmts=imp ; body=d } } }
 	| INTERFACE ; id=IDENT ; pt=paramstype ;
 		ext=loption(preceded(EXTENDS,separated_nonempty_list(VIRG,ntype))) ;
 		LAC ; p=terminated(proto,PVIRG)* ; RAC 
 		{ { loc=$startpos,$endpos ; desc = Interface { nom=id ; params=pt ; extds=ext ; body=p } } }
 	| CLASS ; m=IDENT ; LAC ; PUBLIC ; STATIC ; VOID ; n=IDENT ; LPAR ;
-	 	str=IDENT ; LCRO ; RCRO ; id=IDENT ; LAC ; l=instruction* ; RAC ; RAC
+	 	str=IDENT ; LCRO ; RCRO ; IDENT ; RPAR ; LAC ; l=instruction* ; RAC ; RAC
 		{ if m = "Main" && n = "main" && str = "String"
 			then { loc=$startpos,$endpos ; desc = Main l }
 			else raise (Parser_error "classe Main non reconnue") }
@@ -102,7 +102,7 @@ methode:
 		{ { loc=$startpos,$endpos ; desc = { info=p ; body=l } } }
 
 proto:
-  | VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
+        | VOID ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
 		{ { loc=$startpos,$endpos ; desc = { typ=None ; nom=id ; params=l } } }
 	| t=typ ; id=IDENT ; LPAR ; l=separated_list(VIRG,parametre) ; RPAR
 		{ { loc=$startpos,$endpos ; desc = { typ=Some t ; nom=id ; params=l } } }

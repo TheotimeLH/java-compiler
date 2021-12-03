@@ -15,9 +15,9 @@ let spec =
 let file = ref ""
 let () =
     Arg.parse spec (fun s -> file:=s) usage ;
-    if !file = "" then (eprintf " Aucun fichier renseigné " ; exit 1) ;
+    if !file = "" then (eprintf "erreur entrée: aucun fichier renseigné " ; exit 1) ;
     if not (Filename.check_suffix !file ".java")
-    then (eprintf " Pas d'extension .java " ; exit 1)
+    then (eprintf "erreur entrée: pas d'extension .java " ; exit 1)
 
 let report (s,e) =
     let l = s.pos_lnum in
@@ -53,6 +53,11 @@ let () =
           (*
         | Typing.Typing_error { loc=pos ; msg=s } ->
           report pos ;
-          eprintf "erreur lexicale: %s@." s ;
+          eprintf "erreur typage: %s@." s ;
           exit 1
           *)
+        | _ ->
+          report (lexeme_start_p lb,lexeme_end_p lb) ;
+          eprintf "erreur syntaxique: grammaire non reconnue@." ;
+          exit 1
+        

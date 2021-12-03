@@ -4,8 +4,8 @@
 	open Lexing
 	open Parser
 
-	type error = { loc = Lexing.position * Lexing.position; msg=string }
-	exception Lexer_error of String
+	type error = { loc: Lexing.position * Lexing.position ; msg: string }
+	exception Lexer_error of string
 	exception Non_fini of error
 	exception Interruption
 
@@ -16,12 +16,12 @@
 				"else",ELSE ; "extends",EXTENDS ;
 				"false",BOOL false ; "if",IF	;
 				"implements",IMPLEMENTS ; "int",INT ;
-				"interface"INTERFACE ; "new",NEW ;
+				"interface",INTERFACE ; "new",NEW ;
 				"null",NULL ; "public",PUBLIC ;
 				"return",RETURN; "static",STATIC ;
 				"this",THIS ; "true",BOOL true ;
 				"void",VOID ; "while",WHILE ]	;
-		fun s -> try Hashtbl.find s keywords with Not_Found -> IDENT s
+		fun s -> try Hashtbl.find keywords s with Not_found -> IDENT s
 	
 	let string_buffer = Buffer.create 1024 	
 }
@@ -34,15 +34,15 @@ let entier = '0' | ['1'-'9'] chiffre*
 rule token = parse
 	|	[' ' '\t']+ | "//" [^'\n']*	{token lexbuf}
 	| '\n' 	{ new_line lexbuf ; token lexbuf }
-	| "/*"	{ let pos = lexbuf.lex_start_p,lexbuf.lex_end_p in
+	| "/*"	{ let pos = lexbuf.lex_start_p,lexbuf.lex_curr_p in
 						try comment lexbuf with Interruption ->
 						raise (Non_fini { loc=pos ; msg="commentaire non fermé" } ) }
-	| '"'		{ let pos = lexbuf.lex_start_p,lexbuf.lex_end_p in
+	| '"'		{ let pos = lexbuf.lex_start_p,lexbuf.lex_curr_p in
 						try STR (chaine lexbuf) with Interruption -> 
 						raise (Non_fini { loc=pos ; msg="chaîne de caractères non fermée" } ) }
-	| entier as s -> 	{ try Const (int_of_string s) with _ ->
+	| entier as s 	{ try CONST (int_of_string s) with _ ->
 											raise (Lexer_error "entier trop grand") }
-	|	ident as s -> 	{id_or_keyword s}
+	| ident as s 	{id_or_keyword s}
 	| '=' 	{EQUAL}
 	|	"||" 	{OR}
 	|	"&&" 	{AND}
@@ -84,6 +84,6 @@ and chaine = parse
 
 and comment = parse
   | "*/" 	{token lexbuf}
-	| '\n' 	{ new_line lexbuf ; comment_lexbuf }
+	| '\n' 	{ new_line lexbuf ; comment lexbuf }
   | _  		{comment lexbuf}
   | eof 	{raise Interruption}

@@ -500,16 +500,11 @@ let type_fichier l_ci =
     let env_typage = env_copy env_typage_global in
 
     (* Première étape : les paramstype *)
-    let params = Hashtbl.find ci_params i in
-    let params_id = params_to_ids params in
-    env_typage.paramstype <- IdSet.of_list params_id ;
-    (* Il faut vérifier que les extends des paramstype ne forme pas de cycle,
-       puis les traiter dans un ordre topologique. On vérifie que les theta_i
-       sont connus, et que ce sont des interfaces pour i>1  *)
-    
+    verif_et_fait_paramstype i env_typage ;
+
     (* Deuxième étape : les extends *)
     let extends = Hashtbl.find env_typage.extends i in
-     
+     ()
 
 
 

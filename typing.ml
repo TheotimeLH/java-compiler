@@ -181,7 +181,7 @@ let type_fichier l_ci =
     then (let Ntype (id1,_) = dci1.desc in
       let Ntype (id2,_) = dci2.desc in
       raise (Typing_error {loc = dci1.loc ;
-      msg = id1 ^ " n'est pas connu comme étendant " ^ id2 }))
+      msg = (Ntype.to_str dci1) ^ " n'est pas connu comme étendant " ^ (Ntype.to_str dci2) }))
   in
   (* ======================= *)
 
@@ -221,7 +221,7 @@ let type_fichier l_ci =
     then (let Ntype (id_c,_) = dc.desc in
       let Ntype (id_i,_) = di.desc in
       raise (Typing_error {loc = dc.loc ;
-      msg = id_c ^ " n'est pas connu comme implémentant " ^ id_i }))
+      msg = (Ntype.to_str dc) ^ " n'est pas connu comme implémentant " ^ (Ntype.to_str di) }))
   in
   (* ======================= *)
 
@@ -234,7 +234,7 @@ let type_fichier l_ci =
         let Ntype (id_ci,l_ntypes_ci) = dci.desc in
         if not (IdSet.mem id_ci env_typage.ci)
           then raise (Typing_error {loc = dci.loc ;
-            msg = "Classe/interface inconnue dans le contexte"}) ;
+            msg = "Classe ou interface inconnue dans le contexte"}) ;
         
         let sigma = 
           if IdSet.mem id_ci env_typage.paramstype
@@ -251,7 +251,7 @@ let type_fichier l_ci =
                 let Ntype (id_i,l_ntypes_i) = di.desc in
                 if not (IdSet.mem id_i env_typage.ci)
                   then raise (Typing_error {loc = di.loc ;
-                    msg = "Classe/interface inconnue dans le contexte"}) ;
+                    msg = "Classe ou interface inconnue dans le contexte"}) ;
                 (* La règle 5 porte sur une classe avec une interface *)
                 (IdSet.mem id_i env_typage.i)
                 && (IdSet.mem id_ci env_typage.c)
@@ -296,7 +296,7 @@ let type_fichier l_ci =
   let verifie_sous_type jtyp1 loc1 jtyp2 env_typage = 
     if not (sous_type jtyp1 jtyp2 env_typage)
     then (raise (Typing_error {loc = loc1 ;
-      msg = (str_of_jtp jtyp1)^" n'est pas un sous-type de "^(str_of_jtp jtyp2) }))
+      msg = (str_of_jtp jtyp1) ^ " n'est pas un sous-type de " ^ (str_of_jtp jtyp2) }))
       (* On pourrait rajouter la loc2... *)
   in
   (* ======================= *)
@@ -307,7 +307,7 @@ let type_fichier l_ci =
     | Jntype {loc ; desc = Ntype (id,l_ntypes)} ->
         if not (IdSet.mem id env_typage.ci)
           then raise (Typing_error {loc=loc ;
-            msg = "Classe ou Interface inconnue"}) ;
+            msg = "Classe ou interface inconnue"}) ;
         if l_ntypes = [] then ()
         else begin
         (* id a des paramtypes, en particulier id n'est pas un paramtype *)

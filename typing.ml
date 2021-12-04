@@ -43,8 +43,13 @@ let type_fichier l_ci =
   let tab_pos_ci = Hashtbl.create 10 in
   let graph_c = Hashtbl.create 5 in
   let graph_i = Hashtbl.create 5 in
-  let ci_params = Hashtbl.create 5 in
-  (* liste des paramstype, seules les "vraies" ci en ont (ie pas les paramtype) *)
+  let ci_params = Hashtbl.create 5 in (* liste des paramstype *)
+  (* Rem : seules les "vraies" ci en ont (ie pas les paramtype)
+     donc c'est une information globale. *)
+  let params_to_ids params = (* T1 , ... , Tn, juste les idents *)
+    List.map (fun (p : paramtype desc) -> (p.desc).nom) params 
+  in 
+  
   let env_typage_global = {
     paramstype = IdSet.empty ; 
     ci = IdSet.empty ;
@@ -107,7 +112,10 @@ let type_fichier l_ci =
     Hashtbl.add env_typage_global.implements id l in
   
   init_extends "String" [dobj] ;
-  
+  init_implements "String" [] ;
+  init_extends "Object" [] ;
+  init_implements "Object" [] ;
+
   let rec graph_add_rel g node_id1 dn =
     let Ntype (id2,l_ntypes2) = dn.desc in
     let node_id2 = Hashtbl.find g id2 in
@@ -129,6 +137,7 @@ let type_fichier l_ci =
         graph_add_rel graph_c node_id1 cp
     | Interface {nom ; extds = l} ->
         init_extends nom l ;
+        init_implements nom [] ;
         let node_i = Hashtbl.find graph_i nom in
         List.iter (graph_add_rel graph_i node_i) extds 
     | Main _ -> ()
@@ -139,7 +148,7 @@ let type_fichier l_ci =
   let rec parcours l n =
     if n.mark = NotVisited
     then (n.mark <- InProgress ;
-      List.iter (parcours l) n.prec ;
+      List.iter (parcours l) n.succ ;
       n.mark <- Visited ;
       l := n.id :: !l)
     else if n.mark = InProgress
@@ -161,14 +170,17 @@ let type_fichier l_ci =
      et on peut ainsi localiser très proprement le problème.   *)
 
   (* === Pour les substitutions des paramstype avec sigma === *)
-  let fait_sigma ci l_ntypes =
+  let fait_sigma ci loc l_ntypes =
     let sigma = Hashtbl.create (List.length l_ntypes) in
-    let l_params = Hashtbl.find ci_params ci in
-    List.iter2 
-      (fun (param : paramtype desc) (dn : ntype desc) -> 
-        Hashtbl.add sigma (param.desc).nom dn.desc) 
-      l_params l_ntypes ;
-    sigma
+    let params_id = params_to_ids (Hashtbl.find ci_params ci) in
+    try List.iter2 
+          (fun id (dn : ntype desc) -> 
+            Hashtbl.add sigma id dn.desc) 
+          params_id l_ntypes ;
+        sigma
+    with | Invalid_argument _ -> 
+      raise (Typing_error {loc = loc ;
+        msg = "Trop ou pas assez de paramstype" })
   in
 
   let rec substi_list sigma l_ntypes =
@@ -203,7 +215,7 @@ let type_fichier l_ci =
     let sigma = 
       if IdSet.mem id1 env_typage.paramstype
       then Hashtbl.create 0 (* table de subsitution vide *)
-      else fait_sigma id1 l_ntypes1
+      else fait_sigma id1 dci1.loc l_ntypes1
     in
     List.exists
       (fun dci -> extends dci dci2 env_typage)  
@@ -234,7 +246,7 @@ let type_fichier l_ci =
     let sigma = 
       if IdSet.mem id_c env_typage.paramstype
       then Hashtbl.create 0 (* table de subsitution vide *)
-      else fait_sigma id_c l_ntypes_c
+      else fait_sigma id_c dc.loc l_ntypes_c
     in
     try
       let di' = List.find 
@@ -273,7 +285,7 @@ let type_fichier l_ci =
         let sigma = 
           if IdSet.mem id_ci env_typage.paramstype
           then Hashtbl.create 0 (* table de subsitution vide *)
-          else fait_sigma id_ci l_ntypes_ci
+          else fait_sigma id_ci dci.loc l_ntypes_ci
         in    
         let l_precs = Hashtbl.find env_typage.extends id_ci in
         
@@ -345,10 +357,8 @@ let type_fichier l_ci =
         if l_ntypes = [] then ()
         else begin
         (* id a des paramtypes, en particulier id n'est pas un paramtype *)
-        let params_id = (* T1 , ... , Tn, juste les idents *)
-          List.map 
-            (fun (p : paramtype desc) -> (p.desc).nom)
-            (Hashtbl.find ci_params id) in 
+        let params_id = params_to_ids (Hashtbl.find ci_params id) in 
+        (* T1 , ... , Tn, juste les idents *)
         try
           List.iter2
             (fun param dn ->
@@ -382,15 +392,124 @@ let type_fichier l_ci =
   in
   (* Remarque : on aurait mieux fait d'utiliser des Map et non des Hashtbl :/ *) 
   
+  (* === Vérification des paramstype === *)
+  (* Pour une ci X<T1,...,Tn> il faut vérfier que les contraintes (/les extends)
+     des Ti ne forment pas de cycle, puis on les traite dans un ordre topologique.
+     On vérifie que les theta_i sont connus, et que ce sont des interfaces pour i>1.
+     Si les conditions sont vérifiés, on rajoute les interfaces dans l'env_typage.  
+     
+     REMARQUE sur le comportement de java, on peut avoir Tk extends Tk' 
+     MAIS dans ce cas Tk' doit être l'unique contrainte ! *)
+  let verif_et_fait_paramstype (ci : ident) env_typage =
+    let params = Hashtbl.find ci_params ci in
+    let params_id = params_to_ids params in
+    env_typage.paramstype <- IdSet.of_list params_id ;
+    let info = Hashtbl.create (List.length params) in
+    List.iter 
+      (fun (p : paramtype desc) -> 
+        Hashtbl.add info (p.desc).nom 
+        (NotVisited, p.loc, (p.desc).extds) )
+      params ;
+    
+    let recup_tk' tk = function (* cf la remarque précédente *)
+      | [({desc = Ntype (tk',[])} : ntype desc)] 
+          when IdSet.mem tk' env_typage.paramstype -> Some tk' 
+      | _ -> None
+    in
+
+    let params_tri = ref [] in
+    let rec parcours (tk : ident) =
+      let (tk_mark,tk_loc,tk_contraintes) = Hashtbl.find info tk in
+      if tk_mark = NotVisited 
+      then begin Hashtbl.replace info tk (InProgress,tk_loc,tk_contraintes) ;
+         (match (recup_tk' tk tk_contraintes) with
+          | None -> ()
+          | Some tk' -> parcours tk' )
+         Hashtbl.replace info tk (Visited,tk_loc,tk_contraintes) ;
+         params_tri := tk :: !params_tri ; end
+      else if tk_mark = InProgress
+      then raise (Typing_error {loc = tk_loc ;
+            msg = "Il y a un cycle dans les paramstype"})
+    in
+    
+    List.iter parcours params_id ;
+
+    (* FINALEMENT peu importe dans quels sens on vérifie les paramstype,
+       puisque soit cas 1 on a Tk extends Tk', auquel cas c'est ok.
+       Soit cas 2 Tk ne dépend pas de d'autres paramstype.
+
+       D'ailleurs dans le cas 2 quand on fait les vérications, si on tombe sur
+       un Tk' il faut planter. Malheureusement ici je le fais planter sur un 
+       "Tk' est inconnu", ce serait beaucoup mieux de dire "Tk' est un paramtype, 
+       donc Tk' est une contrainte parmi d'autres ce qui est interdit".
+       Actuellement ma solution est de ne pas mettre les T dans l'env...
+       et les rajouter seulement après les vérifications *)
+
+    let verifie (tk : ident) = 
+      let (_,_,tk_contraintes) = Hashtbl.find info tk in
+      match recup_tk' tk tk_contraintes with (* Pour faire les relations *)
+        | Some tk' ->
+            Hashtbl.add env_typage.extends tk 
+              [{loc = tk'_loc ; desc = Ntype (tk',[])}] ;
+            Hashtbl.add env_typage.implements tk []
+        | None -> begin
+            match tk_contraintes with 
+            | [] -> 
+                Hashtbl.add env_typage.extends tk [dobj] ;
+                Hashtbl.add env_typage.implements tk [] 
+
+            | (dci : ntype desc) :: q ->
+                verifie_bf (Jntype dci) env_typage ;
+                let Ntype (id_ci,l_ntypes_ci) = dci.desc in
+                if IdSet.mem id_ci env_typage.c
+                then (Hashtbl.add env_typage.extends tk [dci] ;
+                      Hashtbl.add env_typage.implements tk [])
+                else (
+                  Hashtbl.add env_typage.extends tk [dobj] ;
+                  Hashtbl.add env_typage.implements tk [dci]) ;
+                List.iter (* On vérifie que les contraintes suivantes st des interfaces *)
+                  (fun (dn : ntype desc) -> 
+                    verifie_bf (Jntype dn) env_typage ;
+                    let Ntype (id',l_ntypes') = dn.desc in
+                    if not (IdSet.mem id' env_typage.i)
+                    then raise (Typing_error {loc = dn.loc ;
+                        msg = "On attend des interfaces en contrainte supplémentaire"})
+                  ) q ;
+                let h = Hashtbl.find env_typage.implements tk in
+                Hashtbl.replace env_typage.implements tk (h @ q)
+        end
+    in
+    List.iter verifie params_id ;
+
+    List.iter (fun tk ->
+      let (_,_,tk_contraintes) = Hashtbl.find info tk in
+       Hashtbl.add env_typage.contraintes tk tk_contraintes ;
+       env_typage.ci <- IdSet.add tk env_typage.ci ;
+       env_typage.c <- IdSet.add tk env_typage.c
+      ) params_id 
+  in
+  (* ======================= *)
+
+
   (* === Les interfaces === *)
   (* Contrairement aux classes, elles ne servent qu'à vérifier le typage
      dans la production de code, on n'en a plus besoin.
      Donc on se contente de vérifier le typage, on ne renvoie rien.
      ET on les vérifie dans un ordre topologique. *)
-  let verifie_interface i =
-    let params = Hashtbl.find ci_params i in
+  let verifie_interface (i : ident) =
     let env_typage = env_copy env_typage_global in
-    env_typage.paramstype <- IdSet.of_list params ;
+
+    (* Première étape : les paramstype *)
+    let params = Hashtbl.find ci_params i in
+    let params_id = params_to_ids params in
+    env_typage.paramstype <- IdSet.of_list params_id ;
+    (* Il faut vérifier que les extends des paramstype ne forme pas de cycle,
+       puis les traiter dans un ordre topologique. On vérifie que les theta_i
+       sont connus, et que ce sont des interfaces pour i>1  *)
+    
+    (* Deuxième étape : les extends *)
+    let extends = Hashtbl.find env_typage.extends i in
+     
 
 
 

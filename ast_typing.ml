@@ -29,9 +29,18 @@ module Ntype = struct
     with
       | Invalid_argument _-> false
   let compare = Stdlib.compare
+  let rec to_str (ntd : ntype desc) = match ntd.desc with
+    |Ntype(id,[]) -> id
+    |Ntype(id,l) -> id^"<"^(String.concat "," (List.map to_str l) )^">"
 end
 
 module NtypeSet = Set.Make(Ntype)
+
+let str_of_jtp jtp = match jtp with
+  |Jtypenull -> "typenull"
+  |Jint -> "int"
+  |Jboolean -> "boolean"
+  |Jntype ntd -> Ntype.to_str ntd
 
 type env_typage = {
   mutable paramstype : IdSet.t ;

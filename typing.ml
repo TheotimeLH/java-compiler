@@ -58,12 +58,16 @@ let type_fichier l_ci =
   let tab_pos_ci = Hashtbl.create 10 in
   let graph_c = Hashtbl.create 5 in
   let graph_i = Hashtbl.create 5 in
+  let ci_params = Hashtbl.create 5 in
+  (* liste des noms des paramstype, seules les "vraies" ci en ont *)
 
   (* === Ajout des noeuds === *)
   let node_obj = {id="Object" ; mark = NotVisited ; prec=[] ; succ=[]} in
 
   let graph_add_node ci = match ci.desc with
-    | Class {nom} -> 
+    | Class {nom ; params} ->
+      Hashtbl.add ci_params nom 
+        (List.map (fun (dp : paramtype desc) -> (dp.desc).nom) params) ;
       Hashtbl.add tab_pos_ci nom ci.loc ;
       if Hashtbl.mem graph_c nom || Hashtbl.mem graph_i nom
         then raise (Typing_error {loc = ci.loc ; 
@@ -72,7 +76,9 @@ let type_fichier l_ci =
         then raise (Typing_error {loc = ci.loc ; 
             msg = "Deux classes Main ou Object ou String"})
       else Hashtbl.add graph_c nom {id=nom ; mark = NotVisited ; prec=[] ; succ=[]}
-    | Interface {nom} ->
+    | Interface {nom ; params} ->
+      Hashtbl.add ci_params nom 
+        (List.map (fun (dp : paramtype desc) -> (dp.desc).nom) params) ;
       Hashtbl.add tab_pos_ci nom ci.loc ;
       if Hashtbl.mem graph_c nom || Hashtbl.mem graph_i nom
         then raise (Typing_error {loc = ci.loc ; 
@@ -89,12 +95,12 @@ let type_fichier l_ci =
   
   (* === Ajout des relations === *)
   (* On ne regarde pas les relations C implements I, on va traiter les I avant *)
-  let rec graph_add_rel g node_id1 nty =
-    let (id2,params) = nty.desc in
+  let rec graph_add_rel g node_id1 dn =
+    let Ntype (id2,l_ntypes2) = dn.desc in
     let node_id2 = Hashtbl.find g id2 in
     node_id1.prec <- node_id2 :: node_id1.prec ; 
     node_id2.succ <- node_id1 :: node_id2.succ ;
-    List.iter (graph_add_rel g node_id1) params
+    List.iter (graph_add_rel g node_id1) l_ntypes2
   in
   let graph_add_vg ci = match ci.desc with
     | Class {nom ; extd=None} -> 
@@ -103,31 +109,31 @@ let type_fichier l_ci =
         node_obj.succ <- node_c :: node_obj.succ
     | Class {nom ; extd=Some cp} -> 
         let node_id1 = Hashtbl.find graph_c nom in
-        graph_add_rel g node_id1 cp
+        graph_add_rel graph_c node_id1 cp
     | Interface {nom ; extds} ->
         let node_i = Hashtbl.find graph_i nom in
-        List.iter (graph_add_rel g node_i) extds 
+        List.iter (graph_add_rel graph_i node_i) extds 
     | Main _ -> ()
   in
   List.iter graph_add_vg l_ci ;
 
   (* === Tri topologique === *)
-  let rec parcours n l =
+  let rec parcours l n =
     if n.mark = NotVisited
     then (n.mark <- InProgress ;
-      List.iter parcours n.prec l ;
+      List.iter (parcours l) n.prec ;
       n.mark <- Visited ;
-      l := n.nom :: !l)
+      l := n.id :: !l)
     else if n.mark = InProgress
-    then raise (Typing_error {loc = Hashtbl.find tab_pos_ci n.nom ;
+    then raise (Typing_error {loc = Hashtbl.find tab_pos_ci n.id ;
           msg = "Il y a un cycle dans les héritages !"})
   in
 
   let list_cl = ref [] in
-  parcours node_obj list_cl ;
+  parcours list_cl node_obj ;
   
   let list_intf = ref [] in
-  Hashtbl.iter (fun i n -> parcours n list_intf) graph_i ;
+  Hashtbl.iter (fun i n -> parcours list_intf n) graph_i ;
   
   
   (* ===== Sous-type / Extends / Implements Généralisées / Bien fondé ===== *)
@@ -141,17 +147,20 @@ let type_fichier l_ci =
     let sigma = Hashtbl.create (List.length l_ntypes) in
     let l_params = Hashtbl.find ci_params ci in
     List.iter2 
-      (fun param ntype -> Hashtbl.add sigma param.nom ntype) 
+      (fun param (dn : ntype desc) -> Hashtbl.add sigma param dn.desc) 
       l_params l_ntypes ;
     sigma
   in
 
   let rec substi_list sigma l_ntypes =
-    List.map (fun dn -> 
+    List.map (fun (dn : ntype desc) -> 
       {loc=dn.loc  ; desc=substi sigma dn.desc}) l_ntypes
   and substi sigma (Ntype (id,l)) =
+    (* Soit on est un paramtype, on le change (d'ailleurs l=[])
+       Soit on est un type construit, qui a des paramstypes
+       necessairement on ne peut être un paramtype  *)
     if Hashtbl.mem sigma id
-      then Ntype( (Hashtbl.find sigma id), substi_list sigma l)
+      then (Hashtbl.find sigma id)
     else Ntype(id, substi_list sigma l)
   in 
   (* ======================= *)
@@ -161,19 +170,19 @@ let type_fichier l_ci =
     (* Attention, on passe par un env, car on peut avoir id1 = T paramtype *)
     (Ntype.equal dci1.desc dci2.desc)
     || 
-    else begin
+    begin
     let Ntype (id1,l_ntypes1) = dci1.desc in
     let Ntype (id2,l_ntypes2) = dci2.desc in
-    if not (IdSet.mem env_typage.ci id1)
+    if not (IdSet.mem id1 env_typage.ci)
       then raise (Typing_error {loc = dci1.loc ;
         msg = "Classe ou interface inconnue dans le contexte"}) ;
-    if not (IdSet.mem env_typage.ci id2)
+    if not (IdSet.mem id2 env_typage.ci)
       then raise (Typing_error {loc = dci2.loc ;
         msg = "Classe ou interface inconnue dans le contexte"}) ;
 
     let l_precs1 = Hashtbl.find env_typage.extends id1 in
     let sigma = 
-      if IdSet.mem env_typage.paramstype id1
+      if IdSet.mem id1 env_typage.paramstype
       then Hashtbl.create 0 (* table de subsitution vide *)
       else fait_sigma id1 l_ntypes1
     in
@@ -186,8 +195,8 @@ let type_fichier l_ci =
     if not (extends dci1 dci2 env_typage)
     then (let Ntype (id1,_) = dci1.desc in
       let Ntype (id2,_) = dci2.desc in
-      raise (Typing_error {loc = dc1.loc ;
-      msg = id1 ^ " n'est pas connu comme étendant " ^ id2 })
+      raise (Typing_error {loc = dci1.loc ;
+      msg = id1 ^ " n'est pas connu comme étendant " ^ id2 }))
   in
   (* ======================= *)
 
@@ -195,16 +204,16 @@ let type_fichier l_ci =
   let rec implements dc di env_typage = 
     let Ntype (id_c,l_ntypes_c) = dc.desc in
     let Ntype (id_i,l_ntypes_i) = di.desc in
-    if not (IdSet.mem env_typage.c id_c)
+    if not (IdSet.mem id_c env_typage.c)
       then raise (Typing_error {loc = dc.loc ;
         msg = "Classe inconnue dans le contexte"}) ;
-    if not (IdSet.mem env_typage.i id_i)
+    if not (IdSet.mem id_i env_typage.i)
       then raise (Typing_error {loc = di.loc ;
         msg = "Interface inconnue dans le contexte"}) ;
 
     let l_implems = Hashtbl.find env_typage.implements id_c in
     let sigma = 
-      if IdSet.mem env_typage.paramstype id_c
+      if IdSet.mem id_c env_typage.paramstype
       then Hashtbl.create 0 (* table de subsitution vide *)
       else fait_sigma id_c l_ntypes_c
     in
@@ -226,8 +235,8 @@ let type_fichier l_ci =
     if not (implements dc di env_typage)
     then (let Ntype (id_c,_) = dc.desc in
       let Ntype (id_i,_) = di.desc in
-      raise (Typing_error {loc = dc1.loc ;
-      msg = id_c ^ " n'est pas connu comme implémentant " ^ id_i })
+      raise (Typing_error {loc = dc.loc ;
+      msg = id_c ^ " n'est pas connu comme implémentant " ^ id_i }))
   in
   (* ======================= *)
 
@@ -238,12 +247,12 @@ let type_fichier l_ci =
     | Jntype {desc = d1},Jntype {desc = d2} when Ntype.equal d1 d2 -> true
     | Jntype dci, _ ->
         let Ntype (id_ci,l_ntypes_ci) = dci.desc in
-        if not (IdSet.mem env_typage.ci id_ci)
+        if not (IdSet.mem id_ci env_typage.ci)
           then raise (Typing_error {loc = dci.loc ;
             msg = "Classe/interface inconnue dans le contexte"}) ;
         
         let sigma = 
-          if IdSet.mem env_typage.paramstype id_ci
+          if IdSet.mem id_ci env_typage.paramstype
           then Hashtbl.create 0 (* table de subsitution vide *)
           else fait_sigma id_ci l_ntypes_ci
         in    
@@ -251,16 +260,16 @@ let type_fichier l_ci =
         
         (List.exists (* Règle 4 des sous-types *)
           (fun dci' -> sous_type (Jntype dci') jtyp2 env_typage)
-          (substi sigma l_precs)  )
+          (substi_list sigma l_precs)  )
         || begin match jtyp2 with (* Potentiellement la règle 5 *)
             | Jntype di ->
                 let Ntype (id_i,l_ntypes_i) = di.desc in
-                if not (IdSet.mem env_typage.ci id_i)
+                if not (IdSet.mem id_i env_typage.ci)
                   then raise (Typing_error {loc = di.loc ;
                     msg = "Classe/interface inconnue dans le contexte"}) ;
                 (* La règle 5 porte sur une classe avec une interface *)
-                (IdSet.mem env_typage.i id_i)
-                && (IdSet.mem env_typage.c id_ci)
+                (IdSet.mem id_i env_typage.i)
+                && (IdSet.mem id_ci env_typage.c)
                 && begin 
                   (* Il faut C implems I et en plus pile la bonne substitution
                      donc encore une fois, on va remonter l'arbre d'héritage,
@@ -297,20 +306,21 @@ let type_fichier l_ci =
                 end
             | _ -> false
           end
+    | _,_ -> false
   in
   let verifie_sous_type jtyp1 loc1 jtyp2 env_typage = 
     if not (sous_type jtyp1 jtyp2 env_typage)
     then (raise (Typing_error {loc = loc1 ;
-      msg = "Ceci n'est pas un sous-type du type demandé" })
+      msg = "Ceci n'est pas un sous-type du type demandé" }))
       (* On pourrait rajouter la loc2... *)
   in
   (* ======================= *)
 
   (* === Bien Fondé === *)
   let rec verifie_bf jtyp env_typage = match jtyp with
-    | Jboolean | Jint -> () (* c'est la fonction vérifie *)
+    | Jboolean | Jint | Jtypenull -> () (* c'est la fonction vérifie *)
     | Jntype {loc ; desc = Ntype (id,l_ntypes)} ->
-        if not (IdSet.mem env_typage.ci id)
+        if not (IdSet.mem id env_typage.ci)
           then raise (Typing_error {loc=loc ;
             msg = "Classe ou Interface inconnue"}) ;
         if l_ntypes = [] then ()
@@ -326,22 +336,17 @@ let type_fichier l_ci =
               match l_contr with
                 | [] -> ()
                 | h::q -> 
-                    verifie_sous_type (Jntype dn) dn.loc (Jntype h) ;
-                    (List.iter (fun di' -> verifie_implements dn di') q)
+                    verifie_sous_type (Jntype dn) dn.loc (Jntype h) env_typage;
+                    (List.iter (fun di' -> verifie_implements dn di' env_typage) q)
             )
             params l_ntypes
         with
-          | Invalid_argument -> raise (Typing_error {loc=loc ;
+          | Invalid_argument _-> raise (Typing_error {loc=loc ;
               msg = "Trop ou pas assez de paramstype"})
         end
   in
   (* ======================= *)
-
-
-
-
-        
-
+  ()
 
 
 

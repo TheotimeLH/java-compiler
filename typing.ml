@@ -130,9 +130,12 @@ let type_fichier l_ci =
   Hashtbl.iter (fun i n -> parcours n list_intf) graph_i ;
   
   
-  (* ===== Sous-type / Extends / Implements Généralisées  ===== *)
+  (* ===== Sous-type / Extends / Implements Généralisées / Bien fondé ===== *)
   (* ATTENTION, là on utilise les relations, on ne les vérifie pas *)
-  
+  (* Les fonctions sont des tests, par exemple verifie_bf vérifie si un type est bien
+     fondé, si c'est le cas le retour est unit, en revanche sinon on raise l'erreur
+     et on peut ainsi localiser très proprement le problème.   *)
+
   (* === Pour les substitutions des paramstype avec sigma === *)
   let fait_sigma ci l_ntypes =
     let sigma = Hashtbl.create (List.length l_ntypes) in
@@ -151,11 +154,14 @@ let type_fichier l_ci =
       then Ntype( (Hashtbl.find sigma id), substi_list sigma l)
     else Ntype(id, substi_list sigma l)
   in 
+  (* ======================= *)
  
   (* === Extends généralisée === *)
   let rec extends dci1 dci2 env_typage =
     (* Attention, on passe par un env, car on peut avoir id1 = T paramtype *)
-    (Ntype.equal dci1.desc dci2.desc) || begin
+    (Ntype.equal dci1.desc dci2.desc)
+    || 
+    else begin
     let Ntype (id1,l_ntypes1) = dci1.desc in
     let Ntype (id2,l_ntypes2) = dci2.desc in
     if not (IdSet.mem env_typage.ci id1)
@@ -176,6 +182,14 @@ let type_fichier l_ci =
       (substi_list sigma l_precs1)
     end
   in
+  let verifie_extends dci1 dci2 env_typage = 
+    if not (extends dci1 dci2 env_typage)
+    then (let Ntype (id1,_) = dci1.desc in
+      let Ntype (id2,_) = dci2.desc in
+      raise (Typing_error {loc = dc1.loc ;
+      msg = id1 ^ " n'est pas connu comme étendant " ^ id2 })
+  in
+  (* ======================= *)
 
   (* === Implements généralisée === *)
   let rec implements dc di env_typage = 
@@ -208,6 +222,14 @@ let type_fichier l_ci =
             (substi_list sigma l_precs)
             (* En soit il y a au plus une sur-classe *)
   in
+  let verifie_implements dc di env_typage = 
+    if not (implements dc di env_typage)
+    then (let Ntype (id_c,_) = dc.desc in
+      let Ntype (id_i,_) = di.desc in
+      raise (Typing_error {loc = dc1.loc ;
+      msg = id_c ^ " n'est pas connu comme implémentant " ^ id_i })
+  in
+  (* ======================= *)
 
   (* === Sous-Type === *)
   let rec sous_type jtyp1 jtyp2 env_typage = match jtyp1,jtyp2 with
@@ -226,6 +248,7 @@ let type_fichier l_ci =
           else fait_sigma id_ci l_ntypes_ci
         in    
         let l_precs = Hashtbl.find env_typage.extends id_ci in
+        
         (List.exists (* Règle 4 des sous-types *)
           (fun dci' -> sous_type (Jntype dci') jtyp2 env_typage)
           (substi sigma l_precs)  )
@@ -275,38 +298,47 @@ let type_fichier l_ci =
             | _ -> false
           end
   in
+  let verifie_sous_type jtyp1 loc1 jtyp2 env_typage = 
+    if not (sous_type jtyp1 jtyp2 env_typage)
+    then (raise (Typing_error {loc = loc1 ;
+      msg = "Ceci n'est pas un sous-type du type demandé" })
+      (* On pourrait rajouter la loc2... *)
+  in
+  (* ======================= *)
 
   (* === Bien Fondé === *)
-  let rec bf env_typage = function
-    | Jboolean | Jint -> true
+  let rec verifie_bf jtyp env_typage = match jtyp with
+    | Jboolean | Jint -> () (* c'est la fonction vérifie *)
     | Jntype {loc ; desc = Ntype (id,l_ntypes)} ->
         if not (IdSet.mem env_typage.ci id)
           then raise (Typing_error {loc=loc ;
             msg = "Classe ou Interface inconnue"}) ;
-        (l_ntypes = [])
-        || (* id a des paramtypes, en particulier id n'est pas un paramtype *)
-        let params = Hashtbl.find ci_params id in
-        
+        if l_ntypes = [] then ()
+        else begin
+        (* id a des paramtypes, en particulier id n'est pas un paramtype *)
+        let params = Hashtbl.find ci_params id in (* T1 , ... , Tn *)
+        try
+          List.iter2
+            (fun param dn ->
+              verifie_bf (Jntype dn) env_typage ;
+              (* param est un paramtype ! *)
+              let l_contr = Hashtbl.find env_typage.contraintes param in
+              match l_contr with
+                | [] -> ()
+                | h::q -> 
+                    verifie_sous_type (Jntype dn) dn.loc (Jntype h) ;
+                    (List.iter (fun di' -> verifie_implements dn di') q)
+            )
+            params l_ntypes
+        with
+          | Invalid_argument -> raise (Typing_error {loc=loc ;
+              msg = "Trop ou pas assez de paramstype"})
+        end
+  in
+  (* ======================= *)
 
 
 
-
-
-          let params = Hashtbl.find ci_params id in
-          let verifie theta {nom ; extds} =
-            
-            
-          List.iter2 verifie ntl paramstypes ;
-        with 
-          | Not_found -> raise (Typing_error {loc=loc ;
-              msg = "Classe ou Interface inconnue"})
-          | Invalid_argument -> raise (Typing_error {loc=loc;
-              msg = "Le nombre de ntypes donnés ne correspond pas au \
-                  au nombre de paramtype de cette classe / interface"})
-
-
-  (* ===== VERIFICATIONS DE TOUTES LES DÉCLARATIONS ===== *)
-  
 
         
 

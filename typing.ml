@@ -14,28 +14,13 @@
        constructeur, au plus une méthode au nom de I etc).
        
        ii) Une fois qu'on a l'état des lieux (on est obligé de le faire en deux temps
-       car l'ordre des déclarations n'importe pas) on vérifier que les corps des
-       methodes et du constructeurs fait sens)
+       car l'ordre des déclarations n'importe pas) on vérifie que les corps des
+       methodes et du constructeurs font sens)
     
     Doit-on faire i) pour toutes les C/I avant de passer au ii) ? OUI
     car on peut utiliser les constructeurs des uns dans tous les autres, idem
     les méthodes).
-
-   Pour l'env de typage globale :
-       on a une Hashtbl : ident -> MethSet
-       (celles demandées dans les interfaces, et celles faites dans les classes)
-       de même Hashtbl : ident -> ChampSet 
-       (utilisée uniquement pour les classes)
-       
    
-   Comment marche les constructeurs de sous classes, on appelle le sur constructeur
-   pour s'occuper de tous les champs de la sur-classe, puis après on s'occupe des
-   nouveaux. Doit-on que le constructeur s'occupe de tous les champs ?
-   Les méthodes sont tjr en public mais les déclarations de champ en privées
-   par défaut ? (Donc on doit vérifier que si on demande qlqch il est en public.
-   Sachant que ça permet de modifier un champ. Du genre dico.machin= 2).
-   Dans le main, si au final tjr arg, on s'en fout ?
-   Peut-on récupérer les déclarations au premier tour ? 
    Que doit-on garder du typage ? *)
 
 open Ast

@@ -44,34 +44,52 @@ let type_fichier l_ci =
   let graph_c = Hashtbl.create 5 in
   let graph_i = Hashtbl.create 5 in
   let ci_params = Hashtbl.create 5 in
-  (* liste des noms des paramstype, seules les "vraies" ci en ont *)
+  (* liste des paramstype, seules les "vraies" ci en ont (ie pas les paramtype) *)
+  let env_typage_global = {
+    paramstype = IdSet.empty ; 
+    ci = IdSet.empty ;
+    c = IdSet.empty ; 
+    i = IdSet.empty ;
+    extends = Hashtbl.create 5 ;
+    implements = Hashtbl.create 5 ;
+    contraintes = Hashtbl.create 5 } in
+  let new_ci nom =
+    env_typage_global.ci <- IdSet.add nom env_typage_global.ci in
+  let new_c nom =
+    new_ci nom ;
+    env_typage_global.c <- IdSet.add nom env_typage_global.c in
+  let new_i nom =
+    new_ci nom ;
+    env_typage_global.i <- IdSet.add nom env_typage_global.i in
+
+  env_typage_global.c <- IdSet.of_list ["Main";"Object";"String"] ;
+  env_typage_global.ci <- env_typage_global.c ;
+  
 
   (* === Ajout des noeuds === *)
   let node_obj = {id="Object" ; mark = NotVisited ; prec=[] ; succ=[]} in
 
   let graph_add_node ci = match ci.desc with
     | Class {nom ; params} ->
-      Hashtbl.add ci_params nom 
-        (List.map (fun (dp : paramtype desc) -> (dp.desc).nom) params) ;
+      Hashtbl.add ci_params nom params ;
       Hashtbl.add tab_pos_ci nom ci.loc ;
-      if Hashtbl.mem graph_c nom || Hashtbl.mem graph_i nom
+
+      if IdSet.mem env_typage_global.ci nom
         then raise (Typing_error {loc = ci.loc ; 
-            msg = "Deux classes/interfaces ont le même nom"})
-      else if nom = "Main" || nom = "Object" || nom = "String" 
-        then raise (Typing_error {loc = ci.loc ; 
-            msg = "Deux classes Main ou Object ou String"})
-      else Hashtbl.add graph_c nom {id=nom ; mark = NotVisited ; prec=[] ; succ=[]}
+            msg = "Nom de classe ou interface déjà utilisé."})
+      else (
+        Hashtbl.add graph_c nom {id=nom ; mark = NotVisited ; prec=[] ; succ=[]}
+        new_c nom ;
     | Interface {nom ; params} ->
-      Hashtbl.add ci_params nom 
-        (List.map (fun (dp : paramtype desc) -> (dp.desc).nom) params) ;
+      Hashtbl.add ci_params nom params ;
       Hashtbl.add tab_pos_ci nom ci.loc ;
-      if Hashtbl.mem graph_c nom || Hashtbl.mem graph_i nom
+
+      if IdSet.mem env_typage_global.ci nom
         then raise (Typing_error {loc = ci.loc ; 
-            msg = "Deux classes/interfaces ont le même nom"})
-      else if nom = "Main" || nom = "Object" || nom = "String"
-        then raise (Typing_error {loc = ci.loc ; 
-            msg = "Une interface porte le nom Main, Object ou String"})
-      else Hashtbl.add graph_i nom {id=nom ; mark = NotVisited ; prec=[] ; succ=[]}
+            msg = "Nom de classe ou interface déjà utilisé."})
+      else (
+        Hashtbl.add graph_i nom {id=nom ; mark = NotVisited ; prec=[] ; succ=[]}
+        new_i nom ;
     | Main _ -> 
       Hashtbl.add tab_pos_ci "Main" ci.loc ; 
       (* tjr traitée dernière *)
@@ -79,7 +97,17 @@ let type_fichier l_ci =
   List.iter graph_add_node l_ci ;
   
   (* === Ajout des relations === *)
-  (* On ne regarde pas les relations C implements I, on va traiter les I avant *)
+  (* Remarque : dans les graphes on ne regarde pas les relations C implements I, 
+     car on va traiter les I avant. *)
+  let dum = (Lexing.dummy_pos,Lexing.dummy_pos) in
+  let dobj = {loc = dum; desc = Ntype ("Object",[])} in
+  let init_extends id l =
+    Hashtbl.add env_typage_global.extends id l in
+  let init_implements id l =
+    Hashtbl.add env_typage_global.implements id l in
+  
+  init_extends "String" [dobj] ;
+  
   let rec graph_add_rel g node_id1 dn =
     let Ntype (id2,l_ntypes2) = dn.desc in
     let node_id2 = Hashtbl.find g id2 in
@@ -88,14 +116,19 @@ let type_fichier l_ci =
     List.iter (graph_add_rel g node_id1) l_ntypes2
   in
   let graph_add_vg ci = match ci.desc with
-    | Class {nom ; extd=None} -> 
+    | Class {nom ; extd=None ; implmts = l} ->
+        init_extends nom [dobj] ;
+        init_implements nom l ;
         let node_c = Hashtbl.find graph_c nom in
         node_c.prec <- [node_obj] ; 
         node_obj.succ <- node_c :: node_obj.succ
-    | Class {nom ; extd=Some cp} -> 
+    | Class {nom ; extd=Some cp} ->
+        init_extends nom [cp] ; 
+        init_implements nom l ;
         let node_id1 = Hashtbl.find graph_c nom in
         graph_add_rel graph_c node_id1 cp
-    | Interface {nom ; extds} ->
+    | Interface {nom ; extds = l} ->
+        init_extends nom l ;
         let node_i = Hashtbl.find graph_i nom in
         List.iter (graph_add_rel graph_i node_i) extds 
     | Main _ -> ()
@@ -132,7 +165,8 @@ let type_fichier l_ci =
     let sigma = Hashtbl.create (List.length l_ntypes) in
     let l_params = Hashtbl.find ci_params ci in
     List.iter2 
-      (fun param (dn : ntype desc) -> Hashtbl.add sigma param dn.desc) 
+      (fun (param : paramtype desc) (dn : ntype desc) -> 
+        Hashtbl.add sigma (param.desc).nom dn.desc) 
       l_params l_ntypes ;
     sigma
   in
@@ -311,7 +345,10 @@ let type_fichier l_ci =
         if l_ntypes = [] then ()
         else begin
         (* id a des paramtypes, en particulier id n'est pas un paramtype *)
-        let params = Hashtbl.find ci_params id in (* T1 , ... , Tn *)
+        let params_id = (* T1 , ... , Tn, juste les idents *)
+          List.map 
+            (fun (p : paramtype desc) -> (p.desc).nom)
+            (Hashtbl.find ci_params id) in 
         try
           List.iter2
             (fun param dn ->
@@ -324,14 +361,37 @@ let type_fichier l_ci =
                     verifie_sous_type (Jntype dn) dn.loc (Jntype h) env_typage;
                     (List.iter (fun di' -> verifie_implements dn di' env_typage) q)
             )
-            params l_ntypes
+            params_id l_ntypes
         with
           | Invalid_argument _-> raise (Typing_error {loc=loc ;
               msg = "Trop ou pas assez de paramstype"})
         end
   in
   (* ======================= *)
-  ()
+  
+
+  (* ===== DECLARATIONS ET VERIFICATION DES HÉRITAGES ===== *)
+
+  (* === Pour créer des env_typages locaux === *)
+  let env_copy e =
+    {paramstype = e.paramstype ;
+    ci = e.ci ; c = e.c ; i = e.i ;
+    extends = Hashtbl.copy e.extends ;
+    implements = Hashtbl.copy e.implements ;
+    contraintes = Hashtbl.copy e.contraintes}
+  in
+  (* Remarque : on aurait mieux fait d'utiliser des Map et non des Hashtbl :/ *) 
+  
+  (* === Les interfaces === *)
+  (* Contrairement aux classes, elles ne servent qu'à vérifier le typage
+     dans la production de code, on n'en a plus besoin.
+     Donc on se contente de vérifier le typage, on ne renvoie rien.
+     ET on les vérifie dans un ordre topologique. *)
+  let verifie_interface i =
+    let params = Hashtbl.find ci_params i in
+    let env_typage = env_copy env_typage_global in
+    env_typage.paramstype <- IdSet.of_list params ;
+
 
 
 

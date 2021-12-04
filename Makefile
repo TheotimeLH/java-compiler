@@ -21,6 +21,7 @@ typing_good:
 
 pjava:
 	dune build main.exe
+	cp _build/default/main.exe pjava
 
 clean:
 	dune clean

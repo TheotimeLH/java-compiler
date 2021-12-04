@@ -47,7 +47,7 @@ type env_typage = {
   mutable ci : IdSet.t ;
   mutable c : IdSet.t ;
   mutable i : IdSet.t ;
-  mutable extends : (ident , ntype desc list) Hashtbl.t ;
-  mutable implements : (ident , ntype desc list) Hashtbl.t ;
-  mutable contraintes : (ident , ntype desc list) Hashtbl.t }
+  extends : (ident , ntype desc list) Hashtbl.t ;
+  implements : (ident , ntype desc list) Hashtbl.t ;
+  contraintes : (ident , ntype desc list) Hashtbl.t }
 

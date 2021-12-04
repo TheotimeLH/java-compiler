@@ -296,7 +296,7 @@ let type_fichier l_ci =
   let verifie_sous_type jtyp1 loc1 jtyp2 env_typage = 
     if not (sous_type jtyp1 jtyp2 env_typage)
     then (raise (Typing_error {loc = loc1 ;
-      msg = "Ceci n'est pas un sous-type du type demandé" }))
+      msg = (str_of_jtp jtyp1)^" n'est pas un sous-type de "^(str_of_jtp jtyp2) }))
       (* On pourrait rajouter la loc2... *)
   in
   (* ======================= *)

@@ -33,13 +33,10 @@ type mark = NotVisited | InProgress | Visited
 type node = { id : ident ; mutable mark : mark ;
   mutable prec : node list ; mutable succ : node list}
  
+let loc_dum = (Lexing.dummy_pos,Lexing.dummy_pos)
 
 let type_fichier l_ci =
-  (* ===== GRAPHES DES RELATIONS ENTRE LES C / LES I ===== *)
-  (* On commence par récupérer toutes les relations, pour pouvoir traiter les I puis 
-     les C dans un ordre topologique, on ne vérifie pas les paramstype par exemple.
-     Attention ! Les ntype, peuvent cacher d'autres dépendances dans les types données
-     pour les paramstype. *)
+  (* ===== LES VARIABLES GLOBALES ===== *)
   let tab_pos_ci = Hashtbl.create 10 in (* Hashtbl : id -> loc *)
   let graph_c = Hashtbl.create 5 in (* Hashtbl : id -> node *)
   let graph_i = Hashtbl.create 5 in (* Hashtbl : id -> node *)
@@ -48,19 +45,22 @@ let type_fichier l_ci =
        Methodes demandées pour i, présente pour c, 
        y compris indirectement via les héritages ! *)
   let ci_params = Hashtbl.create 5 in 
-    (* Hashtbl : id (ci) -> paramtype desc list 
-           * (Hashtbl : id (T) -> MethSet des méthodes que possède T
-           * (Hashtbl : id (T) -> ChSet idem 
-       Pour garder ces informations après la vérification des classes. 
-       Rem : on n'a pas besoin de ces informations pour les interfaces. *)
+    (* Hashtbl : id (ci) -> ty_params
+       Avec { l_dparams :  paramtype desc list ;
+                | Liste des paramstype avec leurs contraintes. 
+              tbl_params_methodes : Hashtbl : id (T) -> MethSet ;
+                | Table des méthodes que possède T, utile uniquement 
+                | pour des paramstype de classe, pour les instructions.
+                | Dans le cas d'interface, on met une Hashtbl vide.
+              tbl_params_champs : Hashtbl : id (T) -> ChSet      *)
   let i_body = Hashtbl.create 5 in (* Hashtbl : id -> proto desc list *)
   let c_body = Hashtbl.create 5 in (* Hashtbl : id -> decl desc list *)
-  let c_champs = Hashtbl.create 5 in 
+  let c_champs = Hashtbl.create 5 in (* Hashtbl : id -> ChSet *)
   let body_main = ref [] in (* instr desc list *)
   (* Rem : 
      Toutes ces informations sont globales, seules les "vraies" ci en ont 
-     (a contrario des paramtype). Récupérer via l'arbre de syntaxe d'entrée 
-     ou construite lors des vérifications des i puis des c *)
+     (a contrario des paramstype). Récupérer via l'arbre de syntaxe d'entrée 
+     ou construite lors des vérifications des i puis des c. *)
   
   let params_to_ids params = (* T1 , ... , Tn, juste les idents *)
     List.map (fun (p : paramtype desc) -> (p.desc).nom) params 
@@ -86,13 +86,43 @@ let type_fichier l_ci =
   env_typage_global.c <- IdSet.of_list ["Main";"Object";"String"] ;
   env_typage_global.ci <- env_typage_global.c ;
   
+  Hashtbl.add ci_methodes "String" 
+    (MethSet.singleton 
+      {nom = "equals" ; 
+       typ = Some ({loc = loc_dum ; desc = Jboolean} : jtype desc) ;
+       types_params = []} ) ;
+  Hashtbl.add ci_champs "String" ChSet.empty ;
+  Hashtbl.add ci_methodes "Object" MethSet.empty ;
+  Hashtbl.add ci_champs "Object" ChSet.empty ;
 
+
+  (* ===== GRAPHES DES RELATIONS ENTRE LES C / LES I ===== *)
+  (* On commence par récupérer toutes les relations, pour pouvoir traiter les I PUIS 
+     les C dans un ordre topologique.
+     ATTENTION, contrairement à ce qu'on pourrait penser, si on a :
+     " class A <T extends B> ", A ne dépend pas pour autant de B.
+     
+     On en profite pour décortiquer l'arbre de syntaxe, 
+     et mettre les informations dans nos variables globales. *)
+
+  let tbl_empty_meth = Hashtbl.create 1 in
+  let tbl_empty_ch = Hashtbl.create 1 in
+  (* Les tables tbl_params_methodes et tbl_params_champs 
+     des interfaces resteront vides, on en utilise qu'une seule.
+     Attention, on a deux tbl_empty, car pas de même type. *)  
+  let init_params (nom : ident) params b =
+    Hashtbl.add ci_params nom
+      {l_dparams = params ;
+       tbl_params_methodes = if b then (Hashtbl.create 5) else tbl_empty_meth ;
+       tbl_params_methodes = if b then (Hashtbl.create 5) else tbl_empty_ch }
+  in 
+  
   (* === Ajout des noeuds === *)
   let node_obj = {id="Object" ; mark = NotVisited ; prec=[] ; succ=[]} in
 
   let graph_add_node ci = match ci.desc with
     | Class {nom ; params ; body} ->
-      Hashtbl.add ci_params nom params ;
+      init_params nom params true ;
       Hashtbl.add c_body nom body ;
       Hashtbl.add tab_pos_ci nom ci.loc ;
 
@@ -103,7 +133,7 @@ let type_fichier l_ci =
         Hashtbl.add graph_c nom {id=nom ; mark = NotVisited ; prec=[] ; succ=[]}
         new_c nom ;
     | Interface {nom ; params ; body} ->
-      Hashtbl.add ci_params nom params ;
+      init_params nom params false ;
       Hashtbl.add i_body nom body ;
       Hashtbl.add tab_pos_ci nom ci.loc ;
 
@@ -123,8 +153,7 @@ let type_fichier l_ci =
   (* === Ajout des relations === *)
   (* Remarque : dans les graphes on ne regarde pas les relations C implements I, 
      car on va traiter les I avant. *)
-  let dum = (Lexing.dummy_pos,Lexing.dummy_pos) in
-  let dobj = {loc = dum; desc = Ntype ("Object",[])} in
+  let dobj = {loc = loc_dum; desc = Ntype ("Object",[])} in
   let init_extends id l =
     Hashtbl.add env_typage_global.extends id l in
   let init_implements id l =
@@ -175,10 +204,10 @@ let type_fichier l_ci =
           msg = "Il y a un cycle dans les héritages !"})
   in
 
-  let list_cl = ref [] in
-  parcours list_cl node_obj ;
+  let list_cl = ref [] in (* ident list *)
+  parcours list_cl node_obj ; (* Object est en tête *)
   
-  let list_intf = ref [] in
+  let list_intf = ref [] in (* ident list *)
   Hashtbl.iter (fun i n -> parcours list_intf n) graph_i ;
   
   

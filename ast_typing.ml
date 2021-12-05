@@ -36,11 +36,19 @@ end
 
 module NtypeSet = Set.Make(Ntype)
 
+let jtype_equal jty1 jty2 = match jty1,jty2 with
+  | Jtypenull,Jtypenull | Jint,Jint | Jboolean,Jboolean -> true
+  | Jntype dn1,Jntype dn2 -> Ntype.equal dn1.desc dn2.desc 
+
 let str_of_jtp jtp = match jtp with
   |Jtypenull -> "typenull"
   |Jint -> "int"
   |Jboolean -> "boolean"
   |Jntype ntd -> Ntype.to_str ntd
+
+let str_of_jtp_opt typ = match typ with
+  |None -> "Void"
+  |Some jtp -> str_of_jtp jtp 
 
 type env_typage = {
   mutable paramstype : IdSet.t ;
@@ -49,5 +57,6 @@ type env_typage = {
   mutable i : IdSet.t ;
   extends : (ident , ntype desc list) Hashtbl.t ;
   implements : (ident , ntype desc list) Hashtbl.t ;
-  contraintes : (ident , ntype desc list) Hashtbl.t }
+  contraintes : (ident , ntype desc list) Hashtbl.t ;
+  methodes : (ident , MethSet.t) Hashtbl.t }
 

@@ -44,6 +44,9 @@ let type_fichier l_ci =
   let graph_c = Hashtbl.create 5 in
   let graph_i = Hashtbl.create 5 in
   let ci_params = Hashtbl.create 5 in (* liste des paramstype *)
+  let i_body = Hashtbl.create 5 in
+  let c_body = Hashtbl.create 5 in
+  let body_main = ref [] in
   (* Rem : seules les "vraies" ci en ont (ie pas les paramtype)
      donc c'est une information globale. *)
   let params_to_ids params = (* T1 , ... , Tn, juste les idents *)
@@ -57,7 +60,8 @@ let type_fichier l_ci =
     i = IdSet.empty ;
     extends = Hashtbl.create 5 ;
     implements = Hashtbl.create 5 ;
-    contraintes = Hashtbl.create 5 } in
+    contraintes = Hashtbl.create 5 ;
+    methodes = Hashtbl.create 5 } in
   let new_ci nom =
     env_typage_global.ci <- IdSet.add nom env_typage_global.ci in
   let new_c nom =
@@ -75,8 +79,9 @@ let type_fichier l_ci =
   let node_obj = {id="Object" ; mark = NotVisited ; prec=[] ; succ=[]} in
 
   let graph_add_node ci = match ci.desc with
-    | Class {nom ; params} ->
+    | Class {nom ; params ; body} ->
       Hashtbl.add ci_params nom params ;
+      Hashtbl.add c_body nom body ;
       Hashtbl.add tab_pos_ci nom ci.loc ;
 
       if IdSet.mem env_typage_global.ci nom
@@ -85,8 +90,9 @@ let type_fichier l_ci =
       else (
         Hashtbl.add graph_c nom {id=nom ; mark = NotVisited ; prec=[] ; succ=[]}
         new_c nom ;
-    | Interface {nom ; params} ->
+    | Interface {nom ; params ; body} ->
       Hashtbl.add ci_params nom params ;
+      Hashtbl.add i_body nom body ;
       Hashtbl.add tab_pos_ci nom ci.loc ;
 
       if IdSet.mem env_typage_global.ci nom
@@ -95,8 +101,9 @@ let type_fichier l_ci =
       else (
         Hashtbl.add graph_i nom {id=nom ; mark = NotVisited ; prec=[] ; succ=[]}
         new_i nom ;
-    | Main _ -> 
-      Hashtbl.add tab_pos_ci "Main" ci.loc ; 
+    | Main l -> 
+      Hashtbl.add tab_pos_ci "Main" ci.loc ;
+      body_main := l
       (* tjr traitée dernière *)
   in
   List.iter graph_add_node l_ci ;
@@ -388,7 +395,8 @@ let type_fichier l_ci =
     ci = e.ci ; c = e.c ; i = e.i ;
     extends = Hashtbl.copy e.extends ;
     implements = Hashtbl.copy e.implements ;
-    contraintes = Hashtbl.copy e.contraintes}
+    contraintes = Hashtbl.copy e.contraintes ;
+    methodes = Hashtbl.copy e.methodes }
   in
   (* Remarque : on aurait mieux fait d'utiliser des Map et non des Hashtbl :/ *) 
   
@@ -490,21 +498,111 @@ let type_fichier l_ci =
   in
   (* ======================= *)
 
+  (* === Vérification redéfinition d'une méthode === *)
+  let rec verifie_redef_methode (meth : ty_methode) loc id_ci env_typage =
+    let extends = Hashtbl.find env_typage.extends id_ci in
+    List.iter 
+      (fun (dci' : ntype desc) ->
+        let Ntype (id_ci',l_ntypes_ci') = dci'.desc in
+        let methodes_ci' = Hashtbl.find env_typage.methodes id_ci' in
+        if begin IdSet.exists (* si la méthode est présente à un niveau on ne remonte pas *) 
+          (fun (meth' : ty_methode) ->
+            if meth'.nom = meth.nom
+            then begin
+              begin match meth.typ,meth'.typ with
+                | None,None -> () (* void *)
+                | Some djtype,Some djtype' -> 
+                    verifie_sous_type djtype.desc djtype.loc djtype'.desc env_typage
+                | _,_ -> raise (Typing_error {loc = loc ;
+                     msg = (str_of_jtp_opt meth.typ) 
+                        ^ " n'est pas un sous type de "
+                        ^ (str_of_jtp_opt meth'.typ) 
+                        ^ " ce qu'il faudrait pour une redéfinition de méthode" })
+              end ;
+              begin try List.iter2
+                (fun (d_jtype : jtype desc) (d_jjype' : jtype desc) ->
+                  if not (jtype_equal d_jtype.desc djtype'.desc)
+                  then raise (Typing_error {loc = d_jtype.loc ;
+                    msg = "Dans une rédéfinition de méthode \
+                           il faut garder les mêmes types pour les paramètres"})  ) 
+                meth.types_params meth'.types_params
+              with | Invalid_argument _ -> 
+                raise (Typing_error {loc = loc ;
+                    msg = "Dans une rédéfinition de méthode \
+                           il faut garder le même nombre de paramètres"}) 
+              end ;
+              true end
+            else false (* Nouvelle méthode *) )
+          methode_ci' end
+        then ()
+        else 
+          (* On part chercher plus haut dans les extends si la méthode existait déjà *)
+          verifie_redef_methode meth loc id_ci' env_typage
+      )
+      extends
+  in
+  (* ======================= *)
+
 
   (* === Les interfaces === *)
   (* Contrairement aux classes, elles ne servent qu'à vérifier le typage
      dans la production de code, on n'en a plus besoin.
      Donc on se contente de vérifier le typage, on ne renvoie rien.
      ET on les vérifie dans un ordre topologique. *)
-  let verifie_interface (i : ident) =
+  let verifie_interface id_i =
     let env_typage = env_copy env_typage_global in
 
     (* Première étape : les paramstype *)
-    verif_et_fait_paramstype i env_typage ;
+    verif_et_fait_paramstype id_i env_typage ;
 
     (* Deuxième étape : les extends *)
-    let extends = Hashtbl.find env_typage.extends i in
-     ()
+    let extends = Hashtbl.find env_typage.extends id_i in
+    List.iter 
+      (fun (di' : ntype desc) ->
+        verifie_bf (Jntype di') env_typage ;
+        let Ntype (id_i',l_ntypes_i') = di'.desc in
+        if not (IdSet.mem id_i' env_typage.i)
+        then raise (Typing_error {loc = di'.loc ;
+          msg = "On attendait une interface et non une classe/paramtype"}) )
+      extends ;
+    
+    (* Troisième étape : les méthodes *)
+    let (body : proto desc list) = Hashtbl.find i_body id_i in
+    let traite_methode (type_retour : jtype desc option)  nom params loc = 
+      (* vérifie type de retour *)
+      begin match type_retour with
+        | None -> ()
+        | Some tr -> verifie_bf tr.desc env_typage
+      end ;
+      (* vérifie type des paramètres *)
+      List.iter 
+        (fun (dp : param desc) ->
+          let p = dp.desc in
+          verifie_bf p.desc env_typage)
+        params ;
+      (* vérifie rédéfinition propre *)
+      let types_params = 
+        List.map (fun (dp : param desc) -> (dp.desc).typ) params in
+      let meth = {nom = nom ; typ = type_retour ; types_params = types_params} in
+      verifie_redef_methode meth loc id_i env_typage ;
+      meth 
+    in
+    let l_methodes = 
+      List.map 
+        (fun (d_proto : proto desc) -> 
+          let pro = d_proto.desc in
+          traite_methode pro.typ pro.nom pro.params d_proto.loc)
+        (Hashtbl.find i_body id_i) in
+    Hashtbl.add env_typage_global.methodes id_i (MethSet.of_list l_methodes)
+    (* Attention : les méthodes partent dans l'env global !! *)
+  in
+  
+  List.iter verifie_interface !list_intf ;
+
+  ()
+    
+       
+        
 
 
 

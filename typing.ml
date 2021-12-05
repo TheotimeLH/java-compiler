@@ -40,15 +40,28 @@ let type_fichier l_ci =
      les C dans un ordre topologique, on ne vérifie pas les paramstype par exemple.
      Attention ! Les ntype, peuvent cacher d'autres dépendances dans les types données
      pour les paramstype. *)
-  let tab_pos_ci = Hashtbl.create 10 in
-  let graph_c = Hashtbl.create 5 in
-  let graph_i = Hashtbl.create 5 in
-  let ci_params = Hashtbl.create 5 in (* liste des paramstype *)
-  let i_body = Hashtbl.create 5 in
-  let c_body = Hashtbl.create 5 in
-  let body_main = ref [] in
-  (* Rem : seules les "vraies" ci en ont (ie pas les paramtype)
-     donc c'est une information globale. *)
+  let tab_pos_ci = Hashtbl.create 10 in (* Hashtbl : id -> loc *)
+  let graph_c = Hashtbl.create 5 in (* Hashtbl : id -> node *)
+  let graph_i = Hashtbl.create 5 in (* Hashtbl : id -> node *)
+  let ci_methodes = Hashtbl.create 5 in 
+    (* Hashtbl : id -> MethSet
+       Methodes demandées pour i, présente pour c, 
+       y compris indirectement via les héritages ! *)
+  let ci_params = Hashtbl.create 5 in 
+    (* Hashtbl : id (ci) -> paramtype desc list 
+           * (Hashtbl : id (T) -> MethSet des méthodes que possède T
+           * (Hashtbl : id (T) -> ChSet idem 
+       Pour garder ces informations après la vérification des classes. 
+       Rem : on n'a pas besoin de ces informations pour les interfaces. *)
+  let i_body = Hashtbl.create 5 in (* Hashtbl : id -> proto desc list *)
+  let c_body = Hashtbl.create 5 in (* Hashtbl : id -> decl desc list *)
+  let c_champs = Hashtbl.create 5 in 
+  let body_main = ref [] in (* instr desc list *)
+  (* Rem : 
+     Toutes ces informations sont globales, seules les "vraies" ci en ont 
+     (a contrario des paramtype). Récupérer via l'arbre de syntaxe d'entrée 
+     ou construite lors des vérifications des i puis des c *)
+  
   let params_to_ids params = (* T1 , ... , Tn, juste les idents *)
     List.map (fun (p : paramtype desc) -> (p.desc).nom) params 
   in 
@@ -60,8 +73,7 @@ let type_fichier l_ci =
     i = IdSet.empty ;
     extends = Hashtbl.create 5 ;
     implements = Hashtbl.create 5 ;
-    contraintes = Hashtbl.create 5 ;
-    methodes = Hashtbl.create 5 } in
+    contraintes = Hashtbl.create 5 } in
   let new_ci nom =
     env_typage_global.ci <- IdSet.add nom env_typage_global.ci in
   let new_c nom =
@@ -395,8 +407,7 @@ let type_fichier l_ci =
     ci = e.ci ; c = e.c ; i = e.i ;
     extends = Hashtbl.copy e.extends ;
     implements = Hashtbl.copy e.implements ;
-    contraintes = Hashtbl.copy e.contraintes ;
-    methodes = Hashtbl.copy e.methodes }
+    contraintes = Hashtbl.copy e.contraintes }
   in
   (* Remarque : on aurait mieux fait d'utiliser des Map et non des Hashtbl :/ *) 
   
@@ -408,7 +419,7 @@ let type_fichier l_ci =
      
      REMARQUE sur le comportement de java, on peut avoir Tk extends Tk' 
      MAIS dans ce cas Tk' doit être l'unique contrainte ! *)
-  let verif_et_fait_paramstype (ci : ident) env_typage =
+  let verifie_et_fait_paramstype (ci : ident) env_typage =
     let params = Hashtbl.find ci_params ci in
     let params_id = params_to_ids params in
     env_typage.paramstype <- IdSet.of_list params_id ;
@@ -504,7 +515,7 @@ let type_fichier l_ci =
     List.iter 
       (fun (dci' : ntype desc) ->
         let Ntype (id_ci',l_ntypes_ci') = dci'.desc in
-        let methodes_ci' = Hashtbl.find env_typage.methodes id_ci' in
+        let methodes_ci' = Hashtbl.find ci_methodes id_ci' in
         if begin IdSet.exists (* si la méthode est présente à un niveau on ne remonte pas *) 
           (fun (meth' : ty_methode) ->
             if meth'.nom = meth.nom
@@ -533,7 +544,7 @@ let type_fichier l_ci =
               end ;
               true end
             else false (* Nouvelle méthode *) )
-          methode_ci' end
+          methodes_ci' end
         then ()
         else 
           (* On part chercher plus haut dans les extends si la méthode existait déjà *)
@@ -541,6 +552,40 @@ let type_fichier l_ci =
       )
       extends
   in
+  let verifie_et_fait_methode (type_retour : jtype desc option)  nom params loc env_typage = 
+    (* vérifie type de retour *)
+    begin match type_retour with
+      | None -> ()
+      | Some tr -> verifie_bf tr.desc env_typage
+    end ;
+    (* vérifie type des paramètres *)
+    List.iter 
+      (fun (dp : param desc) ->
+        let p = dp.desc in
+        verifie_bf p.desc env_typage)
+      params ;
+    (* vérifie rédéfinition propre *)
+    let types_params = 
+      List.map (fun (dp : param desc) -> (dp.desc).typ) params in
+    let meth = {nom = nom ; typ = type_retour ; types_params = types_params} in
+    verifie_redef_methode meth loc id_i env_typage ;
+    meth 
+  in
+  let herite_methode extends loc_i =
+    (* Renvoie un MethSet contenant toutes les méthodes héritées.
+       
+       ATTENTION : si une méthode est présente dans deux classes mères, alors
+       il faut les mêmes arguments, et il faut une relation entre les types de
+       retour, typiquement si dans une des classes/interfaces mères on a T1 m() et dans
+       une autre T2 m(), alors il faut T1 extends(généralisée) T2 ou T2 extends T1
+       (en particulier T1 et T2 doivent être deux classes ou deux interfaces).
+       auquel cas le type de retour hérité sera le plus petit des différents 
+       type de retour. 
+       Ensuite si on redéfinit il faudra un sous-type de ce type hérité. *)
+    let methodes_heritees = MethSet.empty in
+    let heritage_d'une_surci (dci : ntype desc) =
+      let 
+      let sur_methode = Hashtbl.find ci_methodes 
   (* ======================= *)
 
 
@@ -549,61 +594,78 @@ let type_fichier l_ci =
      dans la production de code, on n'en a plus besoin.
      Donc on se contente de vérifier le typage, on ne renvoie rien.
      ET on les vérifie dans un ordre topologique. *)
+  let verifie_bf_et_i (di' : ntype desc) =
+      verifie_bf (Jntype di') env_typage ;
+      let Ntype (id_i',l_ntypes_i') = di'.desc in
+      if not (IdSet.mem id_i' env_typage.i)
+      then raise (Typing_error {loc = di'.loc ;
+        msg = "On attendait une interface et non une classe/paramtype"})
+  in
   let verifie_interface id_i =
     let env_typage = env_copy env_typage_global in
 
     (* Première étape : les paramstype *)
-    verif_et_fait_paramstype id_i env_typage ;
+    verifie_et_fait_paramstype id_i env_typage ;
 
     (* Deuxième étape : les extends *)
     let extends = Hashtbl.find env_typage.extends id_i in
-    List.iter 
-      (fun (di' : ntype desc) ->
-        verifie_bf (Jntype di') env_typage ;
-        let Ntype (id_i',l_ntypes_i') = di'.desc in
-        if not (IdSet.mem id_i' env_typage.i)
-        then raise (Typing_error {loc = di'.loc ;
-          msg = "On attendait une interface et non une classe/paramtype"}) )
-      extends ;
+    List.iter verifie_bf_et_i extends ;
     
     (* Troisième étape : les méthodes *)
+    (* Les méthodes demandées par i comprennent toutes les méthodes demandées
+       par une sur-interface de i. 
+       Si on redéfinit une méthode, on doit vérifier que les paramètres sont 
+       de même type, et que le type de retour est un sous-type. *)
+
     let (body : proto desc list) = Hashtbl.find i_body id_i in
-    let traite_methode (type_retour : jtype desc option)  nom params loc = 
-      (* vérifie type de retour *)
-      begin match type_retour with
-        | None -> ()
-        | Some tr -> verifie_bf tr.desc env_typage
-      end ;
-      (* vérifie type des paramètres *)
-      List.iter 
-        (fun (dp : param desc) ->
-          let p = dp.desc in
-          verifie_bf p.desc env_typage)
-        params ;
-      (* vérifie rédéfinition propre *)
-      let types_params = 
-        List.map (fun (dp : param desc) -> (dp.desc).typ) params in
-      let meth = {nom = nom ; typ = type_retour ; types_params = types_params} in
-      verifie_redef_methode meth loc id_i env_typage ;
-      meth 
-    in
     let l_methodes = 
       List.map 
         (fun (d_proto : proto desc) -> 
           let pro = d_proto.desc in
-          traite_methode pro.typ pro.nom pro.params d_proto.loc)
+          verifie_et_fait_methode pro.typ pro.nom pro.params d_proto.loc env_typage)
         (Hashtbl.find i_body id_i) in
-    Hashtbl.add env_typage_global.methodes id_i (MethSet.of_list l_methodes)
-    (* Attention : les méthodes partent dans l'env global !! *)
+    Hashtbl.add ci_methodes id_i (MethSet.of_list l_methodes)
+    (* Attention : les méthodes partent dans l'env global, via ci_methodes !! *)
   in
   
   List.iter verifie_interface !list_intf ;
+  (* ======================= *)
 
-  ()
+  let verifie_classe id_c =
+    (* Ici on veut vérifier les héritages et déclarer les méthodes, la vérification
+       du corps et la production du nouvel arbre de syntaxe viennent après.  *)
+    let env_typage = env_copy env_typage_global in
+
+    (* Première étape : les paramstype *)
+    verifie_et_fait_paramstype id_i env_typage ;  
+    
+    (* Deuxième étape : la sur-classe *)
+    let d_mere = List.hd (Hashtbl.find env_typage.extends id_c) in
+    (* Une classe hérite toujours d'une seule autre classe, possiblement d'Object,
+       exceptée pour Object, mais qu'on n'a pas besoin de traiter. *)
+    let Ntype(id_mere,l_ntypes_mere) = d_mere.desc in
+    if id_mere = "String"
+    then raise (Typing_error {loc=d_mere.loc ;
+      msg = "On ne doit pas hériter de la classe String" }) ;
+    if not (IdSet.mem id_mere env_typage.c)
+    then raise (Typing_error {loc = d_mere.loc ;
+      msg = "On attendait une classe et non une interface"}) ;
+    if (IdSet.mem id_mere env_typage.paramstype)
+    then raise (Typing_error {loc = d_mere.loc ;
+      msg = "Une classe ne peut étendre un de ses paramstype, beurk"}) ;
+    verifie_bf (Jntype d_mere) env_typage ;
     
        
-        
+    (* Troisième étape les implements *)
+    let implements = Hashtbl.find env_typage.implements id_c in
+    List.iter verifie_bf_et_i implements ;
 
+    (* Quatrième étape vérification du corps *)
+    let (body : decl desc list) = Hashtbl.find c_body id_c in
+    let l_champs = ref [] in
+    let l_methodes = ref [] in
+    let verifie_decl = function
+      | Dvar (djtype,nom) ->
+          verifie_bf djtype.desc ; 
 
-
-
+    ATTENTION À RAJOUTER STRING.EQUALS ET TRAITER SYSTEM.OUT.PRINT ET PRINTLN

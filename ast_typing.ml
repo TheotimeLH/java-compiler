@@ -1,10 +1,9 @@
 open Ast
 
-(* On garde jtype et ntype *)
-(* On garde les positions avec desc pour pouvoir la donner *)
-
+(* === Ensemble d'identifiants === *)
 module IdSet = Set.Make(String)
 
+(* === Pour les méthodes === *)
 type ty_methode = 
   {nom : ident ;
   typ : jtype desc option ; (* car potentiellement void *)
@@ -12,12 +11,23 @@ type ty_methode =
 
 module Methode = struct
   type t = ty_methode
-  let compare m1 m2 = Stdlib.compare m1.nom m2.nom
-  let equal m1 m2 = m1.nom = m2.nom (* pas de surcharge ! *)
+  let compare (m1:t) (m2:t) = Stdlib.compare m1.nom m2.nom
+  let equal (m1:t) (m2:t) = m1.nom = m2.nom (* pas de surcharge ! *)
 end
-
 module MethSet = Set.Make(Methode)
+(* ======================= *)
 
+(* === Pour les champs === *)
+type ty_champ = {nom : ident ; typ : jtype desc}
+module Champ = struct
+  type t = ty_champ
+  let compare (ch1:t) (ch2:t) = Stdlib.compare ch1.nom ch2.nom
+  let equal (ch1:t) (ch2:t) = ch1.nom = ch2.nom
+end
+module ChSet = Set.Make(Champ)
+(* ======================= *)
+
+(* === Pour les ntype / jtype === *)
 module Ntype = struct
   type t = ntype
   let rec equal (Ntype (id1,l1)) (Ntype (id2,l2)) =
@@ -49,7 +59,9 @@ let str_of_jtp jtp = match jtp with
 let str_of_jtp_opt typ = match typ with
   |None -> "Void"
   |Some jtp -> str_of_jtp jtp 
+(* ======================= *)
 
+(* === Les environnements de typage === *) 
 type env_typage = {
   mutable paramstype : IdSet.t ;
   mutable ci : IdSet.t ;
@@ -57,6 +69,5 @@ type env_typage = {
   mutable i : IdSet.t ;
   extends : (ident , ntype desc list) Hashtbl.t ;
   implements : (ident , ntype desc list) Hashtbl.t ;
-  contraintes : (ident , ntype desc list) Hashtbl.t ;
-  methodes : (ident , MethSet.t) Hashtbl.t }
+  contraintes : (ident , ntype desc list) Hashtbl.t }
 

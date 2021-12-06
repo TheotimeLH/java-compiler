@@ -89,7 +89,7 @@ paramtype:
 		{ { loc=$startpos,$endpos ; desc = { nom=id ; extds=l } } }
 
 decl:
-	| t=typ ;  id=IDENT ; PVIRG { { loc=$startpos,$endpos ; desc = Dvar(t,id) } }
+	| t=typ ;  id=IDENT ; PVIRG { { loc=$startpos,$endpos ; desc = Dchamp(t,id) } }
 	| c=constructeur 						{ { loc=$startpos,$endpos ; desc = Dconstr c } }
 	| m=methode 								{ { loc=$startpos,$endpos ; desc = Dmeth m } }
 

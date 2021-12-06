@@ -1,5 +1,11 @@
 open Ast
 
+(* === Pour les tris topologiques === *)
+type mark = NotVisited | InProgress | Visited
+type node = { id : ident ; mutable mark : mark ;
+  mutable prec : node list ; mutable succ : node list}
+
+
 (* === Ensemble d'identifiants === *)
 module IdSet = Set.Make(String)
 
@@ -76,4 +82,11 @@ type ty_params = {
   dparams : paramtype desc list ;
   tbl_params_methodes : (ident, MethSet.t) Hashtbl.t ;
   tbl_params_champs : (ident, ChSet.t) Hashtbl.t
+}
+
+(* === Informations temporaires pour trier les paramstype === *)
+type info_paramtype_tmp = {
+  mutable tk_mark : mark ;
+  tk_loc : localisation ;
+  tk_contraintes : ntype desc list
 }

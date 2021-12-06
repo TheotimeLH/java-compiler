@@ -2,8 +2,9 @@
 
 exception Parser_error of string
 
+type localisation = Lexing.position * Lexing.position 
 type 'a desc = 
-	{loc : Lexing.position * Lexing.position ; desc : 'a}
+	{loc : localisation ; desc : 'a}
 
 type ident = string
 

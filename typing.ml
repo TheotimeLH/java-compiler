@@ -26,12 +26,8 @@
 open Ast
 open Ast_typing
 
-type error = { loc : Lexing.position * Lexing.position; msg : string }
+type error = { loc : localisation ; msg : string }
 exception Typing_error of error
-
-type mark = NotVisited | InProgress | Visited
-type node = { id : ident ; mutable mark : mark ;
-  mutable prec : node list ; mutable succ : node list}
  
 let loc_dum = (Lexing.dummy_pos,Lexing.dummy_pos)
 
@@ -245,7 +241,7 @@ let type_fichier l_ci =
  
   (* === Extends généralisée === *) 
   (*Potentiellement inutile... :/, car contenu dans le test de sous_type*)
-  let rec extends dci1 dci2 env_typage =
+  let rec extends (dci1 : ntype desc) (dci2 : ntype desc) env_typage =
     (* Attention, on passe par un env, car on peut avoir id1 = T paramtype *)
     (Ntype.equal dci1.desc dci2.desc)
     || 
@@ -315,7 +311,7 @@ let type_fichier l_ci =
     then (let Ntype (id_c,_) = dc.desc in
       let Ntype (id_i,_) = di.desc in
       raise (Typing_error {loc = dc.loc ;
-      msg = (Ntype.to_str dc) ^ " n'est pas connu comme implémentant " ^ (Ntype.to_str di) }))
+      msg = (Ntype.to_str dc) ^ " n'est pas connue comme implémentant " ^ (Ntype.to_str di) }))
   in
   (* ======================= *)
 
@@ -356,15 +352,16 @@ let type_fichier l_ci =
                      appliquant sigma à I<theta> on retombe sur notre I.
                      Si j'ai le temps, vu le nombre de fois qu'on refait la même
                      chose, ça serait sûrement mieux de stocker l'extends généralisée
-                     et pareil implems généralisée. :/ *)
+                     et pareil implems généralisée. Mais attention, il faudrait faire
+                     les substitutions au fûr et à mesure. *)
                   
-                  let rec retrouve_i c = (* on n'utilise que les id *)
-                    let l_implems = Hashtbl.find env_typage.implements c in
+                  let rec retrouve_i id_c = (* on n'utilise que les id *)
+                    let implems_id = Hashtbl.find env_typage.implements id_c in
                     try
                       Some (List.find
                         (fun ({desc = Ntype (id_i',_)} : ntype desc) ->
                           id_i' = id_i)
-                        l_implems)
+                        implems_id)
                     with
                       | Not_found ->
                           let rec recup_fst_ok = function
@@ -373,9 +370,9 @@ let type_fichier l_ci =
                             | None :: q -> recup_fst_ok q
                           in
                           recup_fst_ok (List.map
-                            (fun ({desc = Ntype (c',_)} : ntype desc) ->
-                              retrouve_i c' )
-                            (Hashtbl.find env_typage.extends c))
+                            (fun ({desc = Ntype (id_c',_)} : ntype desc) ->
+                              retrouve_i id_c' )
+                            (Hashtbl.find env_typage.extends id_c))
                   in
                   match (retrouve_i id_ci) with
                     | None -> false
@@ -397,7 +394,7 @@ let type_fichier l_ci =
 
   (* === Bien Fondé === *)
   let rec verifie_bf jtyp env_typage = match jtyp with
-    | Jboolean | Jint | Jtypenull -> () (* c'est la fonction vérifie *)
+    | Jboolean | Jint | Jtypenull -> () (* une fonction vérifie est à valeur dans unit *)
     | Jntype {loc ; desc = Ntype (id,l_ntypes)} ->
         if not (IdSet.mem id env_typage.ci)
           then raise (Typing_error {loc=loc ;
@@ -412,10 +409,12 @@ let type_fichier l_ci =
             (fun id_p dn ->
               verifie_bf (Jntype dn) env_typage ;
               (* un paramtype hérite au plus d'une classe ou d'un autre paramtype,
-                 peut-être de Object *)
+                 peut-être de Object 
+                 ATTENTION à ça si on veut passer à un amélioration où on 
+                 conserve extends généralisée *)
               let d_mere = List.hd (Hashtbl.find env_typage.extends id_p) in
               let l_implements = Hashtbl.find env_typage.implements id_p in
-              verifie_extends dn d_mere env_typage ;
+              verifie_extends dn d_mere env_typage ; (* verifie_sous_type fait l'affaire ? *)
               List.iter (fun di' -> verifie_implements dn di' env_typage) l_implements ;
             )
             params_id l_ntypes
@@ -442,22 +441,36 @@ let type_fichier l_ci =
   (* Pour une ci X<T1,...,Tn> il faut vérfier que les contraintes (/les extends)
      des Ti ne forment pas de cycle, puis on les traite dans un ordre topologique.
      On vérifie que les theta_i sont connus, et que ce sont des interfaces pour i>1.
-     Si les conditions sont vérifiés, on rajoute les interfaces dans l'env_typage.  
+     Si les conditions sont vérifiés, on rajoute les interfaces dans l'env_typage.
+     On rajoute les contraintes via env_typage.extends et implements, mais aussi
+     les méthodes nécessairement possédées par T, et évidemment on ajoute T 
+     dans env_typage.paramstype.
      
      REMARQUE sur le comportement de java, on peut avoir Tk extends Tk' 
-     MAIS dans ce cas Tk' doit être l'unique contrainte ! *)
+     MAIS dans ce cas Tk' doit être l'unique contrainte ! 
+
+     Remarque sur mes choix, les paramstypes sont propres à une classe/interface,
+     c'est une information qui nous sert localement pour vérifier les ci. Ainsi
+     se trouve dans env_typage.paramstype uniquement les paramstype de la ci
+     actuellement traitée. On génère un nouvel env_typage à chaque fois.
+     Ainsi on ne risque pas de mélanger les paramstype entre ci. Si A et C utilisent
+     des paramstype nommés "T", ils ne seront jamais mélangés. Les informations 
+     utiles pour le traitement du corps des classes sont gardées dans ci_params. *)
+     
   let verifie_et_fait_paramstype (ci : ident) env_typage =
     let dparams = (Hashtbl.find ci_params ci_params ci).dparams in
     let params_id = params_to_ids dparams in (* T1 , ... , Tn, juste les idents *)
     env_typage.paramstype <- IdSet.of_list params_id ;
-    let info = Hashtbl.create (List.length params) in
+    let info_tmp = Hashtbl.create (List.length params) in
+    (* (ident , info_paramtype_tmp) Hashtbl.t *)
     List.iter 
       (fun (p : paramtype desc) -> 
-        Hashtbl.add info (p.desc).nom 
-        (NotVisited, p.loc, (p.desc).extds) )
+        Hashtbl.add info_tmp (p.desc).nom 
+        {tk_mark = NotVisited ; tk_loc = p.loc ; 
+         tk_contraintes = (p.desc).extds})
       params ;
     
-    let recup_tk' tk = function (* cf la remarque précédente *)
+    let recup_tk' tk = function (* cf la remarque précédente sur le comportement de java *)
       | [({desc = Ntype (tk',[])} : ntype desc)] 
           when IdSet.mem tk' env_typage.paramstype -> Some tk' 
       | _ -> None
@@ -465,16 +478,16 @@ let type_fichier l_ci =
 
     let params_tri = ref [] in
     let rec parcours (tk : ident) =
-      let (tk_mark,tk_loc,tk_contraintes) = Hashtbl.find info tk in
-      if tk_mark = NotVisited 
-      then begin Hashtbl.replace info tk (InProgress,tk_loc,tk_contraintes) ;
-         (match (recup_tk' tk tk_contraintes) with
+      let info_tk = Hashtbl.find info_tmp tk in
+      if info_tk.tk_mark = NotVisited 
+      then begin info_tk.tk_mark <- InProgress ; 
+         (match (recup_tk' tk info_tk.tk_contraintes) with
           | None -> ()
           | Some tk' -> parcours tk' )
-         Hashtbl.replace info tk (Visited,tk_loc,tk_contraintes) ;
+         info_tk.tk_mark <- Visited ;
          params_tri := tk :: !params_tri ; end
-      else if tk_mark = InProgress
-      then raise (Typing_error {loc = tk_loc ;
+      else if info_tk.tk_mark = InProgress
+      then raise (Typing_error {loc = info_tk.tk_loc ;
             msg = "Il y a un cycle dans les paramstype"})
     in
     
@@ -486,13 +499,13 @@ let type_fichier l_ci =
 
        D'ailleurs dans le cas 2 quand on fait les vérications, si on tombe sur
        un Tk' il faut planter. Malheureusement ici je le fais planter sur un 
-       "Tk' est inconnu", ce serait beaucoup mieux de dire "Tk' est un paramtype, 
-       donc Tk' est une contrainte parmi d'autres ce qui est interdit".
-       Actuellement ma solution est de ne pas mettre les T dans l'env...
+       "Tk' est inconnu", ce serait beaucoup mieux de dire "Tk' est un paramtype 
+       donc doit être l'unique contrainte, ce qui n'est pas le cas ici".
+       Actuellement ma solution est de ne pas mettre les T dans l'env 
        et les rajouter seulement après les vérifications *)
 
-    let verifie (tk : ident) = 
-      let (_,_,tk_contraintes) = Hashtbl.find info tk in
+    let verifie_paramtype (tk : ident) = 
+      let {tk_contraintes} = Hashtbl.find info_tmp tk in
       match recup_tk' tk tk_contraintes with (* Pour faire les relations *)
         | Some tk' ->
             Hashtbl.add env_typage.extends tk 
@@ -517,13 +530,13 @@ let type_fichier l_ci =
                     let Ntype (id',l_ntypes') = dn.desc in
                     if not (IdSet.mem id' env_typage.i)
                     then raise (Typing_error {loc = dn.loc ;
-                        msg = "On attend des interfaces en contrainte supplémentaire"})
+                        msg = "On attend des interfaces en contraintes supplémentaires"})
                   ) q ;
                 let h = Hashtbl.find env_typage.implements tk in
                 Hashtbl.replace env_typage.implements tk (h @ q)
         end
     in
-    List.iter verifie params_id ;
+    List.iter verifie_paramtype params_id ;
 
     List.iter (fun tk ->
       env_typage.ci <- IdSet.add tk env_typage.ci ;
@@ -532,6 +545,25 @@ let type_fichier l_ci =
   (* ======================= *)
 
   (* === Vérification redéfinition d'une méthode === *)
+  (* La première chose à faire est de recupérer héritées *)
+  let herite_methode extends loc_i =
+    (* Renvoie un MethSet contenant toutes les méthodes héritées.
+       
+       ATTENTION : si une méthode est présente dans deux ci mères (auquel cas
+       on travaille dans le cadre d'interfaces), alors :
+       il faut les mêmes arguments, et il faut une relation entre les types de
+       retour, typiquement si dans une des classes/interfaces mères on a T1 m() et dans
+       une autre T2 m(), alors il faut T1 extends(généralisée) T2 ou T2 extends T1
+       (en particulier T1 et T2 doivent être deux classes ou deux interfaces).
+       auquel cas le type de retour hérité sera le plus petit des différents 
+       type de retour.
+       Ensuite si on redéfinit il faudra un sous-type de ce type hérité. *)
+    let methodes_heritees = MethSet.empty in
+    let heritage_d'une_surci (dci : ntype desc) =
+      let sur_methode = Hashtbl.find ci_methodes 
+
+
+
   let rec verifie_redef_methode (meth : ty_methode) loc id_ci env_typage =
     let extends = Hashtbl.find env_typage.extends id_ci in
     List.iter 
@@ -593,21 +625,6 @@ let type_fichier l_ci =
     verifie_redef_methode meth loc id_i env_typage ;
     meth 
   in
-  let herite_methode extends loc_i =
-    (* Renvoie un MethSet contenant toutes les méthodes héritées.
-       
-       ATTENTION : si une méthode est présente dans deux classes mères, alors
-       il faut les mêmes arguments, et il faut une relation entre les types de
-       retour, typiquement si dans une des classes/interfaces mères on a T1 m() et dans
-       une autre T2 m(), alors il faut T1 extends(généralisée) T2 ou T2 extends T1
-       (en particulier T1 et T2 doivent être deux classes ou deux interfaces).
-       auquel cas le type de retour hérité sera le plus petit des différents 
-       type de retour. 
-       Ensuite si on redéfinit il faudra un sous-type de ce type hérité. *)
-    let methodes_heritees = MethSet.empty in
-    let heritage_d'une_surci (dci : ntype desc) =
-      let 
-      let sur_methode = Hashtbl.find ci_methodes 
   (* ======================= *)
 
 

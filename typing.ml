@@ -240,7 +240,8 @@ let type_fichier l_ci =
   (* ======================= *)
  
   (* === Extends généralisée === *) 
-  (*Potentiellement inutile... :/, car contenu dans le test de sous_type*)
+  (* Pratiquement toujours contenu dans le test de sous_type.
+     SAUF dans le cadre d'héritage de méthode, voir plus loin. *)
   let rec extends (dci1 : ntype desc) (dci2 : ntype desc) env_typage =
     (* Attention, on passe par un env, car on peut avoir id1 = T paramtype *)
     (Ntype.equal dci1.desc dci2.desc)
@@ -272,6 +273,17 @@ let type_fichier l_ci =
       let Ntype (id2,_) = dci2.desc in
       raise (Typing_error {loc = dci1.loc ;
       msg = (Ntype.to_str dci1) ^ " n'est pas connu comme étendant " ^ (Ntype.to_str dci2) }))
+  in
+  let extends_jtype_opt (djo1 : jtype desc option) (djo2 : jtype desc option) env_typage = 
+    match djo1 , djo2 with
+    | None,None -> true (* void et void *)
+    | Some dj1,Some dj2 ->
+      begin match dj1.desc , dj2.desc with
+        | Jboolean , Jboolean | Jint , Jint -> true
+        | Jntype dnt1 , Jntype dnt2 -> extends dnt1 dnt2 env_typage 
+        | _ , _ -> false
+      end
+    | _,_ -> false
   in
   (* ======================= *)
 
@@ -390,6 +402,14 @@ let type_fichier l_ci =
       msg = (str_of_jtp jtyp1) ^ " n'est pas un sous-type de " ^ (str_of_jtp jtyp2) }))
       (* On pourrait rajouter la loc2... *)
   in
+  let verifie_sous_type_opt (djo1 : jtype desc option) (djo2 : jtype desc option) env_typage =
+    match djo1 , djo2 with
+      | None , None -> () (* void et void *)
+      | Some dj1 , Some dj2 ->
+          verifie_sous_type dj1.desc dj1.loc dj1.desc env_typage
+      | _ , _ -> raise (Typing_error {loc = loc1 ;
+      msg = (str_of_jtp_opt djo1) ^ " n'est pas un sous-type de " ^ (str_of_jtp_opt djo2) })
+  in
   (* ======================= *)
 
   (* === Bien Fondé === *)
@@ -502,7 +522,16 @@ let type_fichier l_ci =
        "Tk' est inconnu", ce serait beaucoup mieux de dire "Tk' est un paramtype 
        donc doit être l'unique contrainte, ce qui n'est pas le cas ici".
        Actuellement ma solution est de ne pas mettre les T dans l'env 
-       et les rajouter seulement après les vérifications *)
+       et les rajouter seulement après les vérifications.
+
+       ATTENTION, on peut appeler un paramtype par le nom d'une ci, 
+       même interface I<I> est autorisé. Dans ce cas on écrase la ci, avec 
+       ma méthode consiste à supprimer les ci portant le nom de paramtype. 
+       FINALEMENT je ne vais pas le faire, parce que je manque du temps et
+       c'est compliqué, car si on a I<A extends C> et d'autre part une classe A
+       et une classe C extends A, il faut garder l'ancien. Mais du coup il y
+       a un gros mélange, on peut imaginer des cas tordus. Je cherchais 
+       peut-être un jour une meilleure façon de faire. *)
 
     let verifie_paramtype (tk : ident) = 
       let {tk_contraintes} = Hashtbl.find info_tmp tk in
@@ -544,69 +573,84 @@ let type_fichier l_ci =
   in
   (* ======================= *)
 
-  (* === Vérification redéfinition d'une méthode === *)
-  (* La première chose à faire est de recupérer héritées *)
-  let herite_methode extends loc_i =
+
+  (* === LES METHODES : Héritage et vérification redéfinition === *)
+
+  (* Je dis que deux méthodes sont en relations, si l'une appartient à une sur-ci
+     de l'autre, ou si une ci hérite des deux. 
+     Les paramètres doivent alors être de même types.*)
+  let verifie_meme_parametres (meth : ty_methode) (meth' : ty_methode) =
+    try List.iter2
+      (fun (d_jtype : jtype desc) (d_jjype' : jtype desc) ->
+        if not (jtype_equal d_jtype.desc djtype'.desc)
+        then raise (Typing_error {loc = d_jtype.loc ;
+          msg = "Deux méthodes en relation doivent avoir des paramètres de même types."}))
+      meth.types_params meth'.types_params
+    with | Invalid_argument _ -> 
+        raise (Typing_error {loc = loc ;
+          msg = "Deux méthodes en relation doivent avoir autant de paramètres."})
+  in
+
+  
+  let herite_methodes id_ci loc_ci =
     (* Renvoie un MethSet contenant toutes les méthodes héritées.
        
-       ATTENTION : si une méthode est présente dans deux ci mères (auquel cas
-       on travaille dans le cadre d'interfaces), alors :
-       il faut les mêmes arguments, et il faut une relation entre les types de
+       ATTENTION : si une méthode est présente dans deux ci mères (comme ce
+       peut être le cas avec des interfaces), alors :
+       il faut les mêmes arguments et il faut une relation entre les types de
        retour, typiquement si dans une des classes/interfaces mères on a T1 m() et dans
        une autre T2 m(), alors il faut T1 extends(généralisée) T2 ou T2 extends T1
        (en particulier T1 et T2 doivent être deux classes ou deux interfaces).
-       auquel cas le type de retour hérité sera le plus petit des différents 
-       type de retour.
-       Ensuite si on redéfinit il faudra un sous-type de ce type hérité. *)
-    let methodes_heritees = MethSet.empty in
-    let heritage_d'une_surci (dci : ntype desc) =
-      let sur_methode = Hashtbl.find ci_methodes 
+       Je dis bien, extends et non sous-type !! Auquel cas le type de retour hérité 
+       sera le plus petit des différents types de retours.
+       Ensuite si on redéfinit il faudra un sous-type de ce type hérité. 
 
+       Remarque : on n'a pas besoin de remonter l'arbre des extensions,
+       les ci_meres contiennent déjà celles des ancêtres. *)
 
-
-  let rec verifie_redef_methode (meth : ty_methode) loc id_ci env_typage =
+    let methodes_heritees = Hashtbl.create 5 in
+    (* (ident , (ty_methode,ident)) Hashtbl.t 
+       Ici beaucoup plus pratique qu'un MethSet, car on veut retrouver 
+       les méthodes déjà héritées, à partir de leur nom. 
+       On sauvegarde aussi le nom de la ci par laquelle on hérite, pour 
+       envoyer des messages d'erreurs précis. *)
+    let heritage_d'une_surci (dci' : ntype desc) =
+      let Ntype (id_ci',_) = dci'.desc in
+      let sur_methodes = Hashtbl.find ci_methodes id_ci' in
+      let traite_methode (meth' : ty_methode) =
+        let {nom} = meth' in
+        match (Hashtbl.find_opt methodes_heritees nom) with
+          | None -> Hashtbl.add methodes_heritees nom (meth',id_ci')
+          | Some (meth'',id_ci'') -> 
+              verifie_meme_parametres meth' meth'' ;
+              if not (extends_jtype_opt meth''.typ meth'.typ env_typage)
+              then if (extends_jtype_opt meth'.typ meth''.typ env_typage)
+              then Hashtbl.replace methodes_heritees nom (meth',id_ci')
+              else raise (Typing_error {loc = loc_ci ;
+                msg = id_ci ^ " hérite de la méthode " ^ nom ^ " via "
+                    ^ id_ci' " avec le type de retour " ^ (str_of_jtp_opt meth'.typ)
+                    ^ " mais aussi via " ^ id_ci'' ^ " avec le type de retour "
+                    ^ (str_of_jtp_opt meth''.typ) 
+                    ^ " or ces types ne sont pas en relation, l'un doit extends l'autre."})
+              (* else on n'a pas à changer *)
+              (* ATTENTION, je ne garantie rien dans les tests d'extends, 
+                 l'env de typage peut être très bizarre, dans le cas où des
+                 paramstype reprennent le nom de vraies ci. 
+                 Cf ma remarque à ce propos dans verifie_et_fait_paramstype. *) 
+      in
+      MethSet.iter traite_methode sur_methodes
+    in
     let extends = Hashtbl.find env_typage.extends id_ci in
-    List.iter 
-      (fun (dci' : ntype desc) ->
-        let Ntype (id_ci',l_ntypes_ci') = dci'.desc in
-        let methodes_ci' = Hashtbl.find ci_methodes id_ci' in
-        if begin IdSet.exists (* si la méthode est présente à un niveau on ne remonte pas *) 
-          (fun (meth' : ty_methode) ->
-            if meth'.nom = meth.nom
-            then begin
-              begin match meth.typ,meth'.typ with
-                | None,None -> () (* void *)
-                | Some djtype,Some djtype' -> 
-                    verifie_sous_type djtype.desc djtype.loc djtype'.desc env_typage
-                | _,_ -> raise (Typing_error {loc = loc ;
-                     msg = (str_of_jtp_opt meth.typ) 
-                        ^ " n'est pas un sous type de "
-                        ^ (str_of_jtp_opt meth'.typ) 
-                        ^ " ce qu'il faudrait pour une redéfinition de méthode" })
-              end ;
-              begin try List.iter2
-                (fun (d_jtype : jtype desc) (d_jjype' : jtype desc) ->
-                  if not (jtype_equal d_jtype.desc djtype'.desc)
-                  then raise (Typing_error {loc = d_jtype.loc ;
-                    msg = "Dans une rédéfinition de méthode \
-                           il faut garder les mêmes types pour les paramètres"})  ) 
-                meth.types_params meth'.types_params
-              with | Invalid_argument _ -> 
-                raise (Typing_error {loc = loc ;
-                    msg = "Dans une rédéfinition de méthode \
-                           il faut garder le même nombre de paramètres"}) 
-              end ;
-              true end
-            else false (* Nouvelle méthode *) )
-          methodes_ci' end
-        then ()
-        else 
-          (* On part chercher plus haut dans les extends si la méthode existait déjà *)
-          verifie_redef_methode meth loc id_ci' env_typage
-      )
-      extends
+    List.iter heritage_d'une_surci extends ;
+    methodes_heritees 
   in
-  let verifie_et_fait_methode (type_retour : jtype desc option)  nom params loc env_typage = 
+
+
+  let verifie_et_fait_methode (type_retour : jtype desc option)  nom params 
+          loc env_typage methodes_heritees =
+    (* Pour rappel, methodes_heritees : (ident , (ty_methode,ident)) Hashtbl.t
+       qui prend un nom de méthode en entrée, et donne (si elle existe) la
+       méthode héritée, et le nom de la ci mère dont on hérite *) 
     (* vérifie type de retour *)
     begin match type_retour with
       | None -> ()
@@ -622,8 +666,16 @@ let type_fichier l_ci =
     let types_params = 
       List.map (fun (dp : param desc) -> (dp.desc).typ) params in
     let meth = {nom = nom ; typ = type_retour ; types_params = types_params} in
-    verifie_redef_methode meth loc id_i env_typage ;
-    meth 
+    begin match (Hashtbl.find_opt methodes_heritees nom) with
+      | None -> () 
+      | Some (meth',id_ci') ->
+          verifie_meme_parametres meth meth' ;
+          verifie_sous_type_opt meth.typ meth'.typ env_typage end 
+     Hashtbl.replace methodes_heritees nom (meth,id_ci)
+     (* Pour les avoir toutes au même endroit...  
+        d'ailleurs c'est forcément la nouvelle def qui l'emporte et là
+        la contrainte est plus souple, avec un sous_type et non extends *)
+     (* Là clairement on peut bien mieux faire en terme de message d'erreur :/ *)
   in
   (* ======================= *)
 
@@ -654,17 +706,24 @@ let type_fichier l_ci =
     (* Les méthodes demandées par i comprennent toutes les méthodes demandées
        par une sur-interface de i. 
        Si on redéfinit une méthode, on doit vérifier que les paramètres sont 
-       de même type, et que le type de retour est un sous-type. *)
+       de même type, et que le type de retour est un sous-type. 
+       Cf les très nombreuses remarques à ce propos dans les fonctions dédiées. *)
 
     let (body : proto desc list) = Hashtbl.find i_body id_i in
-    let l_methodes = 
-      List.map 
-        (fun (d_proto : proto desc) -> 
-          let pro = d_proto.desc in
-          verifie_et_fait_methode pro.typ pro.nom pro.params d_proto.loc env_typage)
-        (Hashtbl.find i_body id_i) in
-    Hashtbl.add ci_methodes id_i (MethSet.of_list l_methodes)
-    (* Attention : les méthodes partent dans l'env global, via ci_methodes !! *)
+    let loc_i = Hashtbl.find tab_pos_ci id_i in
+    let methodes_heritees = herite_methodes id_i loc_i in 
+    let ajoute_meth (d_proto : proto desc) =
+      let pro = d_proto.desc in
+      verifie_et_fait_methode pro.typ pro.nom pro.params 
+        d_proto.loc env_typage methodes_heritees in
+    List.iter ajoute_meth body ;
+    let l_methodes = ref [] in
+    Hashtbl.iter 
+      (fun nom (meth,id_ci') -> l_methodes := meth :: !l_methodes) 
+      methodes_heritees ;
+    Hashtbl.add ci_methodes id_i (MethSet.of_list !l_methodes)
+    (* Attention : les méthodes partent dans l'env global, via ci_methodes,
+       et ici, pour les interfaces, c'est tout. *)
   in
   
   List.iter verifie_interface !list_intf ;

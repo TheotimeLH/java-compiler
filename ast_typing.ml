@@ -62,9 +62,9 @@ let str_of_jtp jtp = match jtp with
   |Jboolean -> "boolean"
   |Jntype ntd -> Ntype.to_str ntd
 
-let str_of_jtp_opt typ = match typ with
+let str_of_jtp_opt (typ : jtype desc option) = match typ with
   |None -> "Void"
-  |Some jtp -> str_of_jtp jtp 
+  |Some jtp -> str_of_jtp jtp.desc
 (* ======================= *)
 
 (* === Les environnements de typage === *) 

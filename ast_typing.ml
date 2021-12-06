@@ -69,12 +69,11 @@ type env_typage = {
   mutable i : IdSet.t ;
   extends : (ident , ntype desc list) Hashtbl.t ;
   implements : (ident , ntype desc list) Hashtbl.t ;
-  contraintes : (ident , ntype desc list) Hashtbl.t 
 }
 
 (* === Les informations renvoyées par la table ci_params === *)
 type ty_params = {
-  l_dparams : paramtype desc list ;
+  dparams : paramtype desc list ;
   tbl_params_methodes : (ident, MethSet.t) Hashtbl.t ;
   tbl_params_champs : (ident, ChSet.t) Hashtbl.t
 }

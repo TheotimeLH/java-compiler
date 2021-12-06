@@ -46,7 +46,7 @@ let type_fichier l_ci =
        y compris indirectement via les héritages ! *)
   let ci_params = Hashtbl.create 5 in 
     (* Hashtbl : id (ci) -> ty_params
-       Avec { l_dparams :  paramtype desc list ;
+       Avec { dparams :  paramtype desc list ;
                 | Liste des paramstype avec leurs contraintes. 
               tbl_params_methodes : Hashtbl : id (T) -> MethSet ;
                 | Table des méthodes que possède T, utile uniquement 
@@ -59,7 +59,7 @@ let type_fichier l_ci =
   let body_main = ref [] in (* instr desc list *)
   (* Rem : 
      Toutes ces informations sont globales, seules les "vraies" ci en ont 
-     (a contrario des paramstype). Récupérer via l'arbre de syntaxe d'entrée 
+     (a contrario des paramstype). Récupérées via l'arbre de syntaxe d'entrée 
      ou construite lors des vérifications des i puis des c. *)
   
   let params_to_ids params = (* T1 , ... , Tn, juste les idents *)
@@ -72,8 +72,7 @@ let type_fichier l_ci =
     c = IdSet.empty ; 
     i = IdSet.empty ;
     extends = Hashtbl.create 5 ;
-    implements = Hashtbl.create 5 ;
-    contraintes = Hashtbl.create 5 } in
+    implements = Hashtbl.create 5 } in
   let new_ci nom =
     env_typage_global.ci <- IdSet.add nom env_typage_global.ci in
   let new_c nom =
@@ -112,7 +111,7 @@ let type_fichier l_ci =
      Attention, on a deux tbl_empty, car pas de même type. *)  
   let init_params (nom : ident) params b =
     Hashtbl.add ci_params nom
-      {l_dparams = params ;
+      {dparams = params ;
        tbl_params_methodes = if b then (Hashtbl.create 5) else tbl_empty_meth ;
        tbl_params_methodes = if b then (Hashtbl.create 5) else tbl_empty_ch }
   in 
@@ -220,7 +219,8 @@ let type_fichier l_ci =
   (* === Pour les substitutions des paramstype avec sigma === *)
   let fait_sigma ci loc l_ntypes =
     let sigma = Hashtbl.create (List.length l_ntypes) in
-    let params_id = params_to_ids (Hashtbl.find ci_params ci) in
+    let dparams = (Hashtbl.find ci_params ci_params ci).dparams in
+    let params_id = params_to_ids dparams in
     try List.iter2 
           (fun id (dn : ntype desc) -> 
             Hashtbl.add sigma id dn.desc) 
@@ -235,16 +235,16 @@ let type_fichier l_ci =
     List.map (fun (dn : ntype desc) -> 
       {loc=dn.loc  ; desc=substi sigma dn.desc}) l_ntypes
   and substi sigma (Ntype (id,l)) =
-    (* Soit on est un paramtype, on le change (d'ailleurs l=[])
-       Soit on est un type construit, qui a des paramstypes
-       necessairement on ne peut être un paramtype  *)
     if Hashtbl.mem sigma id
       then (Hashtbl.find sigma id)
     else Ntype(id, substi_list sigma l)
+    (* Soit id est un paramtype, on le change (d'ailleurs l=[]).
+       Soit id est un type construit, qui a potentiellement des paramstypes. *)
   in 
   (* ======================= *)
  
-  (* === Extends généralisée === *)
+  (* === Extends généralisée === *) 
+  (*Potentiellement inutile... :/, car contenu dans le test de sous_type*)
   let rec extends dci1 dci2 env_typage =
     (* Attention, on passe par un env, car on peut avoir id1 = T paramtype *)
     (Ntype.equal dci1.desc dci2.desc)
@@ -405,19 +405,18 @@ let type_fichier l_ci =
         if l_ntypes = [] then ()
         else begin
         (* id a des paramtypes, en particulier id n'est pas un paramtype *)
-        let params_id = params_to_ids (Hashtbl.find ci_params id) in 
-        (* T1 , ... , Tn, juste les idents *)
+        let dparams = (Hashtbl.find ci_params ci_params ci).dparams in
+        let params_id = params_to_ids dparams in (* T1 , ... , Tn, juste les idents *)
         try
           List.iter2
-            (fun param dn ->
+            (fun id_p dn ->
               verifie_bf (Jntype dn) env_typage ;
-              (* param est un paramtype ! *)
-              let l_contr = Hashtbl.find env_typage.contraintes param in
-              match l_contr with
-                | [] -> ()
-                | h::q -> 
-                    verifie_sous_type (Jntype dn) dn.loc (Jntype h) env_typage;
-                    (List.iter (fun di' -> verifie_implements dn di' env_typage) q)
+              (* un paramtype hérite au plus d'une classe ou d'un autre paramtype,
+                 peut-être de Object *)
+              let d_mere = List.hd (Hashtbl.find env_typage.extends id_p) in
+              let l_implements = Hashtbl.find env_typage.implements id_p in
+              verifie_extends dn d_mere env_typage ;
+              List.iter (fun di' -> verifie_implements dn di' env_typage) l_implements ;
             )
             params_id l_ntypes
         with
@@ -435,8 +434,7 @@ let type_fichier l_ci =
     {paramstype = e.paramstype ;
     ci = e.ci ; c = e.c ; i = e.i ;
     extends = Hashtbl.copy e.extends ;
-    implements = Hashtbl.copy e.implements ;
-    contraintes = Hashtbl.copy e.contraintes }
+    implements = Hashtbl.copy e.implements }
   in
   (* Remarque : on aurait mieux fait d'utiliser des Map et non des Hashtbl :/ *) 
   
@@ -449,8 +447,8 @@ let type_fichier l_ci =
      REMARQUE sur le comportement de java, on peut avoir Tk extends Tk' 
      MAIS dans ce cas Tk' doit être l'unique contrainte ! *)
   let verifie_et_fait_paramstype (ci : ident) env_typage =
-    let params = Hashtbl.find ci_params ci in
-    let params_id = params_to_ids params in
+    let dparams = (Hashtbl.find ci_params ci_params ci).dparams in
+    let params_id = params_to_ids dparams in (* T1 , ... , Tn, juste les idents *)
     env_typage.paramstype <- IdSet.of_list params_id ;
     let info = Hashtbl.create (List.length params) in
     List.iter 
@@ -502,19 +500,17 @@ let type_fichier l_ci =
             Hashtbl.add env_typage.implements tk []
         | None -> begin
             match tk_contraintes with 
-            | [] -> 
-                Hashtbl.add env_typage.extends tk [dobj] ;
-                Hashtbl.add env_typage.implements tk [] 
-
+            | [] ->  init_extends tk [dobj] ; init_implements tk []
             | (dci : ntype desc) :: q ->
                 verifie_bf (Jntype dci) env_typage ;
                 let Ntype (id_ci,l_ntypes_ci) = dci.desc in
                 if IdSet.mem id_ci env_typage.c
                 then (Hashtbl.add env_typage.extends tk [dci] ;
-                      Hashtbl.add env_typage.implements tk [])
+                      Hashtbl.add env_typage.implements tk q)
                 else (
                   Hashtbl.add env_typage.extends tk [dobj] ;
-                  Hashtbl.add env_typage.implements tk [dci]) ;
+                  Hashtbl.add env_typage.implements tk tk_contraintes) ;
+
                 List.iter (* On vérifie que les contraintes suivantes st des interfaces *)
                   (fun (dn : ntype desc) -> 
                     verifie_bf (Jntype dn) env_typage ;
@@ -530,11 +526,8 @@ let type_fichier l_ci =
     List.iter verifie params_id ;
 
     List.iter (fun tk ->
-      let (_,_,tk_contraintes) = Hashtbl.find info tk in
-       Hashtbl.add env_typage.contraintes tk tk_contraintes ;
-       env_typage.ci <- IdSet.add tk env_typage.ci ;
-       env_typage.c <- IdSet.add tk env_typage.c
-      ) params_id 
+      env_typage.ci <- IdSet.add tk env_typage.ci ;
+      env_typage.c <- IdSet.add tk env_typage.c ) params_id 
   in
   (* ======================= *)
 

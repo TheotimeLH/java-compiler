@@ -80,13 +80,15 @@ type env_typage = {
   mutable i : IdSet.t ;
   extends : (ident , ntype desc list) Hashtbl.t ;
   implements : (ident , ntype desc list) Hashtbl.t ;
-}
-
-(* === Les informations renvoyées par la table ci_params === *)
-type ty_params = {
-  dparams : paramtype desc list ;
-  tbl_params_methodes : (ident, MethSet.t) Hashtbl.t ;
-  tbl_params_champs : (ident, ChSet.t) Hashtbl.t
+  methodes : (ident, MethSet.t) Hashtbl.t ;
+  (* Pour une classe : les méthodes possédées,
+     Pour une interface : les méthodes demandées,
+     Pour un paramtype : les méthodes nécessairement possédées
+     i.e. héritées via les contraintes, si T extends C & I1 & I2 etc
+     alors T possède toutes les méthodes de C, mais aussi toutes celles
+     demandées par les I. *) 
+  champs : (ident, ChSet.t) Hashtbl.t ; (* idem *)
+  tab_loc : (ident, localisation) Hashtbl.t
 }
 
 (* === Informations temporaires pour trier les paramstype === *)

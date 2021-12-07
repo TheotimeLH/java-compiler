@@ -3,7 +3,7 @@
 ### Commandes
 
 - `make` créé le compilateur *pjava*
-- `./pjava [options] [fichier].java` pour exécuter \\
+- `./pjava [options] [fichier].java` pour exécuter
 options: --parse-only | --type-only
 - `make tests` pour effectuer tous les tests
 - `make syntax` pour effectuer les tests syntaxiques

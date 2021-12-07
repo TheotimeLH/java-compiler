@@ -25,5 +25,6 @@ pjava:
 
 clean:
 	dune clean
+	rm -f pjava
 
 .PHONY: all clean pjava

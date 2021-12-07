@@ -9,6 +9,11 @@ type node = { id : ident ; mutable mark : mark ;
 (* === Ensemble d'identifiants === *)
 module IdSet = Set.Make(String)
 
+(* === Pour les constructeurs === *)
+type ty_const = param desc list
+(* Pendant la phase de vérification du typage, on n'a pas besoin des corps,
+   c'est seulement au moment de la vérification de ceux-ci qu'on produit un 
+   nouvel arbre de syntaxe, destiné au producteur de code *)
 (* === Pour les méthodes === *)
 type ty_methode = 
   {nom : ident ;

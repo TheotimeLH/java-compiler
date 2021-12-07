@@ -64,7 +64,7 @@ type constructeur =
 	{nom : ident ; params : param desc list ; body : instr desc list}
 
 type decl = 
-	|	Dvar of jtype desc * ident	
+	|	Dchamp of jtype desc * ident	
 	|	Dconstr of constructeur desc
 	|	Dmeth of methode desc
 

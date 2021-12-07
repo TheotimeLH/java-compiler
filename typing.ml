@@ -48,10 +48,12 @@ let type_fichier l_ci =
                 | Table des méthodes que possède T, utile uniquement 
                 | pour des paramstype de classe, pour les instructions.
                 | Dans le cas d'interface, on met une Hashtbl vide.
-              tbl_params_champs : Hashtbl : id (T) -> ChSet      *)
+              tbl_params_champs : Hashtbl : id (T) -> ChSet
+       Attention : les paramstype n'ont pas de constructeur ! *)
   let i_body = Hashtbl.create 5 in (* Hashtbl : id -> proto desc list *)
   let c_body = Hashtbl.create 5 in (* Hashtbl : id -> decl desc list *)
   let c_champs = Hashtbl.create 5 in (* Hashtbl : id -> ChSet *)
+  let c_constr = Hashtbl.create 5 in (* Hashtbl : id -> ty_constr *)
   let body_main = ref [] in (* instr desc list *)
   (* Rem : 
      Toutes ces informations sont globales, seules les "vraies" ci en ont 
@@ -680,6 +682,19 @@ let type_fichier l_ci =
   (* ======================= *)
 
 
+  (* === Construction de ci_params, pour les classes === *)
+  let recup_champs_methodes_paramstype id_c env_typage =
+    (* ici on a déjà verifié et ajouté les paramstype *)
+    let {tbl_params_methodes ; tbl_params_champs } = 
+      Hashtbl.find ci_params ci_params ci in
+    let params_id = env_typage.paramstype in
+    let fait_un_paramtype id_t =
+      let dc_mere = List.hd (Hashtbl.find env_typage.extends id_t) in
+      (* AHHHHHHHHHHHHHHHHHHHHH *)
+
+  (* ======================= *)
+
+
   (* === Les interfaces === *)
   (* Contrairement aux classes, elles ne servent qu'à vérifier le typage
      dans la production de code, on n'en a plus besoin.
@@ -734,9 +749,10 @@ let type_fichier l_ci =
        du corps et la production du nouvel arbre de syntaxe viennent après.  *)
     let env_typage = env_copy env_typage_global in
 
-    (* Première étape : les paramstype *)
-    verifie_et_fait_paramstype id_i env_typage ;  
-    
+    (* Première étape : déclaration des paramstype *)
+    verifie_et_fait_paramstype id_c env_typage ;  
+    recup_champs_methodes_paramstype id_c env_typage ;
+
     (* Deuxième étape : la sur-classe *)
     let d_mere = List.hd (Hashtbl.find env_typage.extends id_c) in
     (* Une classe hérite toujours d'une seule autre classe, possiblement d'Object,
@@ -751,19 +767,20 @@ let type_fichier l_ci =
     if (IdSet.mem id_mere env_typage.paramstype)
     then raise (Typing_error {loc = d_mere.loc ;
       msg = "Une classe ne peut étendre un de ses paramstype, beurk"}) ;
-    verifie_bf (Jntype d_mere) env_typage ;
-    
+    verifie_bf (Jntype d_mere) env_typage ; 
        
-    (* Troisième étape les implements *)
-    let implements = Hashtbl.find env_typage.implements id_c in
-    List.iter verifie_bf_et_i implements ;
-
-    (* Quatrième étape vérification du corps *)
+    (* Troisième étape : vérification du corps 
+       -> déclaration des champs, des méthodes et du constructeur  *)
     let (body : decl desc list) = Hashtbl.find c_body id_c in
     let l_champs = ref [] in
     let l_methodes = ref [] in
     let verifie_decl = function
-      | Dvar (djtype,nom) ->
+      | Dchamp (djtype,nom) ->
           verifie_bf djtype.desc ; 
 
+    (* Quatrième étape : vérification des implements 
+       -> pour le coup on vérifie vraiment si c présente les méthodes demandées *)
+    let implements = Hashtbl.find env_typage.implements id_c in
+    List.iter verifie_bf_et_i implements ;
+     
     ATTENTION À RAJOUTER STRING.EQUALS ET TRAITER SYSTEM.OUT.PRINT ET PRINTLN

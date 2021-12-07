@@ -626,7 +626,7 @@ let type_fichier l_ci =
      Les paramètres doivent alors être de même types.*)
   let verifie_meme_parametres (meth : ty_methode) (meth' : ty_methode) =
     try List.iter2
-      (fun (d_jtype : jtype desc) (d_jjype' : jtype desc) ->
+      (fun (d_jtype : jtype desc) (d_jtype' : jtype desc) ->
         if not (jtype_equal d_jtype.desc djtype'.desc)
         then raise (Typing_error {loc = d_jtype.loc ;
           msg = "Deux méthodes en relation doivent avoir des paramètres de même types."}))
@@ -636,6 +636,21 @@ let type_fichier l_ci =
           msg = "Deux méthodes en relation doivent avoir autant de paramètres."})
   in
 
+  let recup_methodes (dci' : ntype desc) env_typage =
+    let Ntype (id_ci',l_ntypes_ci') = dci'.desc in
+    (* Il faut substituer les paramstype dans les types de retour des méthodes héritées *)
+    (* MAIS aussi dans les paramètres, voir l'exemple correcte test9.java.
+       << interface I<U> { U m();}
+          interface J<U> { U m();}
+          interface K extends I<String>,J<String> {String m();} >> *)
+    let sigma = fait_sigma id_ci' dci'.loc l_ntypes_ci' in
+    
+    MethSet.map 
+      (fun meth -> {nom = meth.nom ; 
+          typ = substi_djo sigma meth.typ ; 
+          types_params = substi_list_dj sigma meth.types_params } )
+      (Hashtbl.find env_typage.methodes id_ci')
+  in
   
   (* BUT : Renvoyer un MethSet contenant toutes les méthodes héritées.
        
@@ -661,18 +676,8 @@ let type_fichier l_ci =
 
   let heritage_d'une_surci id_ic loc_ci methode_heritees env_typage (dci' : ntype desc) =
     let Ntype (id_ci',l_ntypes_ci') = dci'.desc in
-    (* Il faut substituer les paramstype dans les types de retour des méthodes héritées *)
-    (* MAIS aussi dans les paramètres, voir l'exemple correcte test9.java.
-       << interface I<U> { U m();}
-          interface J<U> { U m();}
-          interface K extends I<String>,J<String> {String m();} >> *)
     let sigma = fait_sigma id_ci' dci'.loc l_ntypes_ci' in
-    let sur_methodes = 
-      MethSet.map 
-        (fun meth -> {nom = meth.nom ; 
-            typ = substi_djo sigma meth.typ ; 
-            types_params = substi_list_dj sigma meth.types_params } )
-        (Hashtbl.find env_typage.methodes id_ci') in
+    let sur_methodes = recup_methodes dci' env_typage in
     let traite_methode (meth' : ty_methode) =
       let {nom} = meth' in
       match (Hashtbl.find_opt methodes_heritees nom) with
@@ -716,9 +721,7 @@ let type_fichier l_ci =
     end ;
     (* vérifie type des paramètres *)
     List.iter 
-      (fun (dp : param desc) ->
-        let p = dp.desc in
-        verifie_bf p.desc env_typage)
+      (fun (dp : param desc) -> verifie_bf dp.desc.ty.desc env_typage)
       params ;
     (* vérifie rédéfinition propre *)
     let types_params = 
@@ -745,7 +748,7 @@ let type_fichier l_ci =
   (* ======================= *)
 
 
-  (* === Construction de ci_params, pour les classes === *)
+  (* === Construction des infos sur les paramstypes, pour les classes === *)
   let recup_champs_methodes_paramstype id_c env_typage =
     (* ici on a déjà verifié et ajouté les paramstype *)
     let params_id_tri = Hashtbl.find ci_params_tri id_c in
@@ -814,7 +817,8 @@ let type_fichier l_ci =
     let ajoute_meth (d_proto : proto desc) =
       let pro = d_proto.desc in
       verifie_et_fait_methode pro.typ pro.nom pro.params 
-        d_proto.loc env_typage methodes_heritees in
+        d_proto.loc env_typage methodes_heritees 
+    in
     List.iter ajoute_meth body ;
     Hashtbl.add env_typage_global.methodes id_i (tab_meth_to_MethSet methodes_heritees)
     (* Attention : les méthodes de l'interface partent dans l'env global !!
@@ -825,43 +829,122 @@ let type_fichier l_ci =
   List.iter verifie_interface !list_intf ;
   (* ======================= *)
 
+
+  (* === LES CLASSES === *)
+  (* La vérification des classes se fait en 2 temps. 
+     1) Déclaration - pour *toutes* les classes : 
+       -On déclare les paramstype 
+       -On controle l'existence de la surclasse
+       -On déclare les méthodes, les champs et le constructeur, en vérifiant
+        les types des paramètres et le type de retour, et surtout on gère
+        l'héritage des méthodes.
+       -On controle les implements, en vérifiant chaque méthode !
+     2) PUIS à nouveau pour *toutes* les classes :
+       -On récupère les champs et les méthodes des paramstype,
+        en suivant un ordre topologique au sein des paramstype.
+     
+     On est obligé de commencer par déclarer toutes les méthodes et les champs, 
+     et ce dans toutes les classes (plus exactement dans toutes les vraies ci,
+     sachant que les interfaces ont déjà été faites), avant de passer aux paramstypes. 
+     Car on peut avoir A<I extends B> et B<I extends A>. 
+     Utiliser un ordre topologique sur les classes est crucial dans la première partie,
+     exactement pour comme pour les interfaces précédemment. *)
+
   let verifie_classe id_c =
-    (* Ici on veut vérifier les héritages et déclarer les méthodes, la vérification
-       du corps et la production du nouvel arbre de syntaxe viennent après.  *)
     let env_typage = env_copy env_typage_global in
 
-    (* Première étape : déclaration des paramstype *)
+    (* Déclaration des paramstype *)
     verifie_et_fait_paramstype id_c env_typage ;  
-    recup_champs_methodes_paramstype id_c env_typage ;
 
-    (* Deuxième étape : la sur-classe *)
+    (* La sur-classe *)
     let d_mere = List.hd (Hashtbl.find env_typage.extends id_c) in
     (* Une classe hérite toujours d'une seule autre classe, possiblement d'Object,
        exceptée pour Object, mais qu'on n'a pas besoin de traiter. *)
-    let Ntype(id_mere,l_ntypes_mere) = d_mere.desc in
-    if id_mere = "String"
+    let Ntype(id_m,l_ntypes_m) = d_mere.desc in
+    if id_m = "String"
     then raise (Typing_error {loc=d_mere.loc ;
       msg = "On ne doit pas hériter de la classe String" }) ;
-    if not (IdSet.mem id_mere env_typage.c)
+    if not (IdSet.mem id_m env_typage.c)
     then raise (Typing_error {loc = d_mere.loc ;
       msg = "On attendait une classe et non une interface"}) ;
-    if (IdSet.mem id_mere env_typage.paramstype)
+    if (IdSet.mem id_m env_typage.paramstype)
     then raise (Typing_error {loc = d_mere.loc ;
       msg = "Une classe ne peut étendre un de ses paramstype, beurk"}) ;
     verifie_bf (Jntype d_mere) env_typage ; 
        
-    (* Troisième étape : vérification du corps 
-       -> déclaration des champs, des méthodes et du constructeur  *)
+    (* Déclaration du corps : des champs, des méthodes et du constructeur  *)
     let (body : decl desc list) = Hashtbl.find c_body id_c in
-    let l_champs = ref [] in
-    let l_methodes = ref [] in
+    let methodes_heritees = Hashtbl.create 5 in
+    heritage_d'une_surci id_c loc_c methodes_heritees dc_mere ;
+    let champs = ref (ChSet.map 
+      (fun champ -> {nom = champ.nom ; 
+        typ = substi_dj sigma champ.typ } )
+      (Hashtbl.find env_typage.champs id_m)) in  
     let verifie_decl = function
-      | Dchamp (djtype,nom) ->
-          verifie_bf djtype.desc ; 
+      | Dchamp (dj,nom) ->
+          let champ = {nom = nom ; typ = dj} in
+          if ChSet.mem champ !champs (* Le equal du module Champ compare juste les noms *)
+          then raise (Typing_error {loc = dj.desc ;
+            msg = id_c ^ " hérite déjà d'un champ " ^ nom 
+              ^ " il est interdit de rédéfinir un champ."})
+            (* l'erreur vaut aussi si on définit 2 fois un champ au sein d'une classe *)
+          else (verifie_bf djtype.desc ;
+            champs := ChSet.add champ !champs)
 
-    (* Quatrième étape : vérification des implements 
-       -> pour le coup on vérifie vraiment si c présente les méthodes demandées *)
+      | Dmeth dmeth ->
+          let d_proto = dmeth.desc.info in 
+          let pro = d_proto.desc in (* les deux desc sont redondants ! *)
+          verifie_et_fait_methode pro.typ pro.nom pro.params 
+            d_proto.loc env_typage methodes_heritees ;
+      
+      | Dconstr dconstr -> 
+          let {nom ; params} = dconstr.desc in
+          if nom <> id_c then raise (Typing_error {loc = dconstr.loc ;
+            msg = "Le constructeur doit avoir le même nom que la classe"}) ;
+          List.iter 
+            (fun (dp : param desc) -> verifie_bf dp.desc.typ.desc env_typage)
+            params ;
+          Hashtbl.add c_constr params 
+    in
+    List.iter verifie_decl body ; 
+    Hashtbl.add env_typage_global.champs id_c !champs ;
+    Hashtbl.add env_typage_global.methodes id_c (tab_meth_to_MethSet methodes_heritees) ;
+    (* Informations qui partent dans le GLOBAL *)
+
+    (* Vérification des implements, on vérifie vraiment si c présente les méthodes demandées *)
     let implements = Hashtbl.find env_typage.implements id_c in
     List.iter verifie_bf_et_i implements ;
+    let verification_implements (di : ntype desc) =
+      let Ntype (id_i,l_ntypes_i) = di.desc in
+      let sigma = fait_sigma id_i di.loc l_ntypes_i in
+      let meth_demandees = recup_methodes di env_typage in
+      let verifie_meth (meth_i : ty_methode) = 
+        match Hashtbl.find_opt methodes_heritees meth_i.nom with
+        | None -> raise (Typing_error {loc = di.loc ;
+            msg = id_c ^ " n'implémente pas " ^ id_i 
+              ^ " parce qu'elle n'a pas de méthode " ^ nom})
+        | Some meth_c -> 
+            verifie_meme_parametres meth_i meth_c ;
+            verifie_sous_type_opt meth_c.typ meth_i.typ env_typage
+      in
+      MethSet.iter verifie_meth meth_demandees 
+    in
+    List.iter verification_implements implements ;
+
+    Hashtbl.add env_locaux id_c env_typage 
+  in
+  
+  (* En premier *)
+  List.iter verifie_classe (List.tl !list_cl) ; (* on ne vérifie pas Object *) 
+
+  (* PUIS *)
+  List.iter
+    (fun id_c -> 
+      let env_typage = Hashtbl.find env_locaux id_c in
+      recup_champs_methodes_paramstype id_c env_typage )
+    (List.tl !list_cl) ;
+
+
+
      
     ATTENTION À RAJOUTER STRING.EQUALS ET TRAITER SYSTEM.OUT.PRINT ET PRINTLN

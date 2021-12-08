@@ -95,7 +95,7 @@ let type_fichier l_ci =
   Hashtbl.add env_typage_global.methodes "String" 
     (MethSet.singleton 
       {nom = "equals" ; 
-       typ = Some ({loc = loc_dum ; desc = Jboolean} : jtype desc) ;
+       typ = Some {loc = loc_dum ; desc = Jboolean} ;
        types_params = []} ) ;
   Hashtbl.add env_typage_global.champs "String" ChSet.empty ;
   Hashtbl.add env_typage_global.methodes "Object" MethSet.empty ;
@@ -286,7 +286,8 @@ let type_fichier l_ci =
     then (let Ntype (id1,_) = dci1.desc in
       let Ntype (id2,_) = dci2.desc in
       raise (Typing_error {loc = dci1.loc ;
-      msg = (Ntype.to_str dci1) ^ " n'est pas connu comme étendant " ^ (Ntype.to_str dci2) }))
+      msg = (Ntype.to_str dci1) ^ " n'est pas connu comme étendant " 
+          ^ (Ntype.to_str dci2) }))
   in
   let extends_jtype_opt (djo1 : jtype desc option) (djo2 : jtype desc option) env_typage = 
     match djo1 , djo2 with
@@ -337,7 +338,8 @@ let type_fichier l_ci =
     then (let Ntype (id_c,_) = dc.desc in
       let Ntype (id_i,_) = di.desc in
       raise (Typing_error {loc = dc.loc ;
-      msg = (Ntype.to_str dc) ^ " n'est pas connue comme implémentant " ^ (Ntype.to_str di) }))
+      msg = (Ntype.to_str dc) ^ " n'est pas connue comme implémentant " 
+          ^ (Ntype.to_str di) }))
   in
   (* ======================= *)
 
@@ -567,15 +569,7 @@ let type_fichier l_ci =
        mal se passer !    *)
     
     (* = Sauvegarde d'un ordre topologique = *)
-    ####
-    let tb_id_to_dp = Hashtbl.create (List.lenght params_id) in
-    List.iter2 
-      (fun (id : ident) (dp : paramtype desc) -> 
-        Hashtbl.add tb_id_to_dp id dp)
-      params_id dparams ;
-    let dparams_tri = List.map (Hashtbl.find tb_id_to_dp) !params_id_tri in
     Hashtbl.add ci_params_tri ci !params_id_tri ;
-    (* ===================================== *)
 
     let verifie_paramtype (tk : ident) = 
       let {tk_contraintes} = Hashtbl.find info_tmp tk in
@@ -873,18 +867,18 @@ let type_fichier l_ci =
     verifie_bf (Jntype d_mere) env_typage ; 
        
     (* Déclaration du corps : des champs, des méthodes et du constructeur  *)
-    let (body : decl desc list) = Hashtbl.find c_body id_c in
+    let body = Hashtbl.find c_body id_c in
     let methodes_heritees = Hashtbl.create 5 in
     heritage_d'une_surci id_c loc_c methodes_heritees dc_mere ;
     let champs = ref (ChSet.map 
       (fun champ -> {nom = champ.nom ; 
         typ = substi_dj sigma champ.typ } )
       (Hashtbl.find env_typage.champs id_m)) in  
-    let verifie_decl = function
+    let verifie_decl (decl : decl desc) = match decl.desc with
       | Dchamp (dj,nom) ->
           let champ = {nom = nom ; typ = dj} in
           if ChSet.mem champ !champs (* Le equal du module Champ compare juste les noms *)
-          then raise (Typing_error {loc = dj.desc ;
+          then raise (Typing_error {loc = decl.loc ;
             msg = id_c ^ " hérite déjà d'un champ " ^ nom 
               ^ " il est interdit de rédéfinir un champ."})
             (* l'erreur vaut aussi si on définit 2 fois un champ au sein d'une classe *)
@@ -899,7 +893,7 @@ let type_fichier l_ci =
       
       | Dconstr dconstr -> 
           let {nom ; params} = dconstr.desc in
-          if nom <> id_c then raise (Typing_error {loc = dconstr.loc ;
+          if nom <> id_c then raise (Typing_error {loc = decl.loc ;
             msg = "Le constructeur doit avoir le même nom que la classe"}) ;
           List.iter 
             (fun (dp : param desc) -> verifie_bf dp.desc.typ.desc env_typage)
@@ -911,7 +905,8 @@ let type_fichier l_ci =
     Hashtbl.add env_typage_global.methodes id_c (tab_meth_to_MethSet methodes_heritees) ;
     (* Informations qui partent dans le GLOBAL *)
 
-    (* Vérification des implements, on vérifie vraiment si c présente les méthodes demandées *)
+    (* Vérification des implements :
+       Enfin, on vérifie vraiment si c présente les méthodes demandées *)
     let implements = Hashtbl.find env_typage.implements id_c in
     List.iter verifie_bf_et_i implements ;
     let verification_implements (di : ntype desc) =
@@ -941,10 +936,117 @@ let type_fichier l_ci =
   List.iter
     (fun id_c -> 
       let env_typage = Hashtbl.find env_locaux id_c in
+      env_typage.methodes <- Hashtbl.copy env_typage_global.methodes ; 
+      env_typage.champs <- Hashtbl.copy env_typage_global.champs ;
+      (* On actualise, en prennant toutes les méthodes des vraies ci,
+         sachant qu'on ne risque pas d'écraser quoique ce soit, dans les env_locaux
+         ces champs étaient restés vides jusqu'ici. *)
       recup_champs_methodes_paramstype id_c env_typage )
     (List.tl !list_cl) ;
 
+  (* ================================= *)
+  (* ================================= *)
 
 
-     
+
+
+  (* ===== VERIFICATION DES CORPS ===== *)
+  (* Il nous reste à vérifier les corps, composés d'inscrutions. Pour cela on 
+     va utiliser, en plus des env_typage (locaux), des env_vars, qui sont en faites
+     de simple (ident, jtype desc) Hashtbl.t   *)
+
+  let rec jtype_of_acces =
+
+  and jtype_of_expr loc_expr env_typage env_vars = function
+    | Enull -> Jtypenull
+    | Esimple dexpr_s -> jtype_of_expr dexpr_s.loc env_typage env_vars dexpr_s.desc
+    | Eequal _ -> failwith "Desaccord avec le projet"
+        (* ###### voir test9.java, ça ne veut rien dire ! Ce n'est pas une affectation,
+           ni un test d'égalité (même physique) *)
+    |               
+
+  and jtype_of_expr_s =
+  
+
+  let verifie_blocs_instrs (type_r : jtype desc option) loc_bloc 
+        env_typage env_vars (instrs : instr desc list) = match instrs with
+    | [] -> 
+        begin match type_r with
+        | None -> ()
+        | Some dj -> raise (Typing_error {loc = loc_bloc ;
+            msg = "Il manque un return à ces instructions, on attend "
+                    ^ (str_to_jtp_opt type_r) })
+        end
+    | dinstr :: q -> begin match dinstr.desc with
+        | Ireturn dexpr_opt ->
+            let djo = match dexpr_opt with 
+              | None -> None
+              | Some dexpr ->
+                  let jtype = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+                  Some {loc = dexpr.loc ; desc = jtype}
+            in
+            (* à cause de jtype desc option, qui est naze, il faudrait jtype option desc *)
+            verifie_sous_type_opt djo type_retour env_typage
+            (* Il faudrait VRAIMENT rattraper l'erreur, et préciser que c'est 
+               pour faire office de type de retour *)
+        | _ -> begin match dinstr.desc with
+          | Ireturn _ -> failwith "déjà traité, ce cas n'arrive jamais"
+          | Inil -> ()
+          | Isimple _ -> 
+              (* ############# Je ne suis pas d'accord avec l'énoncé du projet, 
+                 une expr_simple n'est pas une instruction ! *) 
+              failwith "Desaccord avec le projet"
+          | Idef (dacc,dexpr)
+          end
+          verifie_blocs_instrs type_r loc_bloc env_typage env_vars q 
+      end
+  in
+  
+  (* === Fonctions principales === *)
+  let verifie_corps_c id_c = 
+    let loc_c = Hashtbl.find env_typage.tab_loc id_c in 
+    let env_typage = Hashtbl.find env_locaux id_c in
+    let body = Hashtbl.find c_body id_c in
+    let params_dn = List.map
+      (fun (dpt : paramtype desc) ->
+        {loc = dpt.loc ; desc = Ntype (dpt.desc.nom,dpt.desc.extds) })
+      (Hashtbl.find ci_params id_c) in
+    let type_this = {loc = loc_c ; desc = Jntype 
+        {loc = loc_c ; desc = Ntype (id_c , params_dn)}} in
+    (* this est une variable spéciale, de type C<T1,...,Tk> *)
+    let verifie_decl (decl : decl desc) = match decl.desc with
+      | Dchamp _ -> () (* tout est déjà fait *)
+      | Dmeth dmeth ->
+          let env_vars = Hashtbl.create 10 in
+          Hashtbl.add env_vars "this" type_this ;
+          let meth = dmeth.desc in
+          let pro = meth.info.desc in
+          let type_retour = pro.typ in
+          List.iter 
+            (fun (dp : param desc) -> Hashtbl.add env_vars dp.desc.nom dp.desc.typ)
+            pro.params ;
+          verifie_bloc_instrs type_retour decl.loc env_typage env_vars meth.body 
+      
+      | Dconstr dconstr -> 
+          (* On pourrait faire une fonction auxiliaire, puisqu'on copie le cas précédent *)
+          let env_vars = Hashtbl.create 10 in
+          Hashtbl.add env_vars "this" type_this ;
+          let constr = dconstr.desc in
+          List.iter 
+            (fun (dp : param desc) -> Hashtbl.add env_vars dp.desc.nom dp.desc.typ)
+            constr.params ;
+          verifie_bloc_instrs None dconst.loc env_typage env_vars constr.body 
+    in
+    List.iter verifie_decl body ;
+  in
+  
+  IdSet.iter verifie_corps_c (diff env_global.c (IdSet.of_list ["Object";"String"]))
+
+  (* Enfin, on traite Main *)
+  let env_vars = Hashtbl.create 10 in
+  let loc_main = Hashtbl.find env_typage_global.tab_loc "Main" in
+  verifie_bloc_instrs None loc_main env_typage_global env_vars !body_main ;
+in
+
     ATTENTION À RAJOUTER STRING.EQUALS ET TRAITER SYSTEM.OUT.PRINT ET PRINTLN
+    ATTENTION AU CONSTRUCTEUR OBJECT()

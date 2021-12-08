@@ -25,7 +25,7 @@ type binop =
   | Band | Bor                          (* && || *)
 
 type expr =
-	|	Enil
+	|	Enull
 	|	Esimple of expr_simple desc
 	|	Eequal of acces desc * expr desc
 	|	Eunop of unop * expr desc 

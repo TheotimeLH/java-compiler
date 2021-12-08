@@ -125,7 +125,7 @@ ntype:
 	| id=IDENT	{ { loc=$startpos,$endpos ; desc = Ntype (id,[]) } }
 
 expr:
-	| NULL 															{ { loc=$startpos,$endpos ; desc = Enil } }
+	| NULL 															{ { loc=$startpos,$endpos ; desc = Enull } }
 	| es=expr_simple 										{ { loc=$startpos,$endpos ; desc = Esimple es } }
 	| a=acces ; EQUAL ; e=expr 					{ { loc=$startpos,$endpos ; desc = Eequal(a,e) } }
 	| NOT ; e=expr 											{ { loc=$startpos,$endpos ; desc = Eunop(Unot,e) } }

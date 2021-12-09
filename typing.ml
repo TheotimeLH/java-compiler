@@ -898,7 +898,7 @@ let type_fichier l_ci =
           List.iter 
             (fun (dp : param desc) -> verifie_bf dp.desc.typ.desc env_typage)
             params ;
-          Hashtbl.add c_constr params 
+          Hashtbl.add c_constr id_c params 
     in
     List.iter verifie_decl body ; 
     Hashtbl.add env_typage_global.champs id_c !champs ;
@@ -953,19 +953,102 @@ let type_fichier l_ci =
   (* ===== VERIFICATION DES CORPS ===== *)
   (* Il nous reste à vérifier les corps, composés d'inscrutions. Pour cela on 
      va utiliser, en plus des env_typage (locaux), des env_vars, qui sont en faites
-     de simple (ident, jtype desc) Hashtbl.t   *)
+     de simple (ident, jtype) Hashtbl.t   *)
 
+  (* ATTENTION C'EST ICI QUE NOUS DEVRIONS PRODUIRE LE NOUVEL ARBRE DE SYNTAXE
+     MAIS VU MON RETARD, JE TIENS D'ABORD À TESTER LE TYPEUR    *)
+
+  (* Les accès gèrent les valeurs gauches *)
   let rec jtype_of_acces =
 
   and jtype_of_expr loc_expr env_typage env_vars = function
     | Enull -> Jtypenull
     | Esimple dexpr_s -> jtype_of_expr dexpr_s.loc env_typage env_vars dexpr_s.desc
-    | Eequal _ -> failwith "Desaccord avec le projet"
-        (* ###### voir test9.java, ça ne veut rien dire ! Ce n'est pas une affectation,
-           ni un test d'égalité (même physique) *)
-    |               
+    | Eequal (dacces,dexpr) -> (* permet a = b = c qui change b en c puis a en b *)
+        let jt_expr = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+        let jt_acces = jtype_of_acces dacces.loc env_typage env_vars dacces.desc in
+        if not (sous_type jt_expr jt_acces env_typage)
+        then raise (Typing_error {loc=loc_expr ;
+          msg = "Pour changer une valeur, il faut un sous-type de ce qui est demandé "
+              ^ (str_of_jtp jt_expr) ^ " n'est pas un sous-type de "
+              ^ (str_of_jtp jt_acces)}) ;
+        jt_acces
+    | Eunop (unop,dexpr) -> 
+        let jt_expr = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+        begin match unop with
+          | Unot -> 
+              if jt_expr <> Jboolean 
+              then raise (Typing_error {loc=dexpr.loc ;
+                msg = "Le not s'applique sur un boolean"}) ;
+              Jboolean
+          | Uneg ->
+              if jt_expr <> Jint 
+              then raise (Typing_error {loc=dexpr.loc ;
+                msg = "Le moins unaire s'applique sur un entier"}) ;
+              Jint
+        end
+    | Ebinop (dexpr1,binop,dexpr2) ->
+        let jt_expr1 = jtype_of_expr dexpr1.loc env_typage env_vars dexpr1.desc in
+        let jt_expr2 = jtype_of_expr dexpr2.loc env_typage env_vars dexpr2.desc in
+        begin match jt_expr1,binop,jt_expr2 with
+          | Jint,Badd,Jint | Jint,Bsub,Jint | Jint,Bmul,Jint
+          | Jint,Bdiv,Jint | Jint,Bmod,Jint -> Jint
+          | Jint,Blt,Jint | Jint,Ble,Jint
+          | Jint,Bgt,Jint | Jint,Bge,Jint -> Jboolean
+          | Jboolean,Band,Jboolean | Jboolean,Bor,Jboolean -> Jboolean
+          | Jntype {desc=Ntype("String",[])} as s,Badd,Jntype {desc=Ntype("String",[])}  
+          | Jntype {desc=Ntype("String",[])} as s,Badd,Jint
+          | Jint,Badd,Jntype {desc=Ntype("String",[])} as s -> s
+            (* ATTENTION il faudra transmettre l'info du int_to_str *)
+          | _,Beq,_ | _,Bneq,_ ->
+              verifie_sous_type jt_expr1 dexpr1.loc jt_expr2 env_typage ;
+              verifie_sous_type jt_expr2 dexpr2.loc jt_expr1 env_typage ;
+              Jboolean
+          | _,_,_ -> raise (Typing_error {loc = dexpr1.loc ;
+              msg = "Cette opérateur binaire ne s'applique pas avec ces types "
+                   ^ (str_of_jtp jt_expr1) ^ " et " ^ (str_of_jtp jt_expr2)})
+            (* Ce message d'erreur est terrible...
+               On pourrait demander un binop desc pour commencer.
+               Dans tous les cas il faudra être plus fin pour produire l'arbre de sortie *)
+        end         
 
-  and jtype_of_expr_s =
+  and jtype_of_expr_s loc_expr_s env_typage env_vars = function
+    | ESint n -> Jint
+    | ESstr s -> Jntype {loc = loc_dum ; desc=Ntype("String",[])}
+        (* Il faut absoluement que je fasse un Jstring, ça sera tellement plus simple *)
+    | ESbool b -> Jboolean
+    | ESthis ->
+        if not Hashtbl.mem env_vars "this"
+        then raise (Typing_error {loc = loc_expr_s ;
+          msg = "Aucun this actuellement, probablement parce que dans Main"})
+        else Hashtbl.find env_vars "this"
+    | ESexpr dexpr -> jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc 
+    | ESnew (dn,params_dexpr) ->
+        let Ntype(id_c,l_ntypes) = dn.desc in
+        if id_c = "Object"
+        then begin if l_ntypes = [] then Jntype dn
+            else raise (Typing_error {loc = dn.loc ;
+              msg = "Le constructeur Object() n'attend pas de paramètre"}) end
+        else begin match Hashtbl.find_opt c_constr id_c with
+          | None -> raise (Typing_error {loc = dn.loc ;
+              msg = id_c ^ " ne possède pas de constructeur." })
+          | Some params_dn ->
+              try List.iter2 
+                (fun (dn : param desc) (dexpr : expr desc) ->
+                  let jt_expr = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+                  verifie_sous_type jt_expr dexpr.loc dn.desc.typ.desc )
+                params_dn params_dexpr ;
+                Jntype dn
+              with | Invalid_argument -> raise (Typing_error {loc = loc_expr_s ;
+                msg = "Le constructeur de " ^ id_c 
+                    ^ " est appelé sur trop ou pas assez de paramètres"})
+        end
+    
+    | ESacces dacces l_dexpr -> 
+        (* Regroupe deux cas de la grammaire : les appels de méthodes
+           et les accès aux variables ! *)
+        (* AHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH *)
+
   
 
   let verifie_blocs_instrs (type_r : jtype desc option) loc_bloc 
@@ -992,10 +1075,10 @@ let type_fichier l_ci =
         | _ -> begin match dinstr.desc with
           | Ireturn _ -> failwith "déjà traité, ce cas n'arrive jamais"
           | Inil -> ()
-          | Isimple _ -> 
-              (* ############# Je ne suis pas d'accord avec l'énoncé du projet, 
-                 une expr_simple n'est pas une instruction ! *) 
-              failwith "Desaccord avec le projet"
+          | Isimple dexpr_s -> 
+              ignore (jtype_of_expr_s dexpr_s.loc env_typage env_vars dexpr_s.desc)
+              (* Attention, ici on autorise ce genre de chose pour simplifier la
+                 grammaire, mais en java c'est interdit, donc on ignore le retour *)
           | Idef (dacc,dexpr)
           end
           verifie_blocs_instrs type_r loc_bloc env_typage env_vars q 
@@ -1011,8 +1094,7 @@ let type_fichier l_ci =
       (fun (dpt : paramtype desc) ->
         {loc = dpt.loc ; desc = Ntype (dpt.desc.nom,dpt.desc.extds) })
       (Hashtbl.find ci_params id_c) in
-    let type_this = {loc = loc_c ; desc = Jntype 
-        {loc = loc_c ; desc = Ntype (id_c , params_dn)}} in
+    let type_this = Jntype {loc = loc_c ; desc = Ntype (id_c , params_dn)} in
     (* this est une variable spéciale, de type C<T1,...,Tk> *)
     let verifie_decl (decl : decl desc) = match decl.desc with
       | Dchamp _ -> () (* tout est déjà fait *)
@@ -1023,7 +1105,7 @@ let type_fichier l_ci =
           let pro = meth.info.desc in
           let type_retour = pro.typ in
           List.iter 
-            (fun (dp : param desc) -> Hashtbl.add env_vars dp.desc.nom dp.desc.typ)
+            (fun (dp : param desc) -> Hashtbl.add env_vars dp.desc.nom dp.desc.typ.desc)
             pro.params ;
           verifie_bloc_instrs type_retour decl.loc env_typage env_vars meth.body 
       
@@ -1033,7 +1115,7 @@ let type_fichier l_ci =
           Hashtbl.add env_vars "this" type_this ;
           let constr = dconstr.desc in
           List.iter 
-            (fun (dp : param desc) -> Hashtbl.add env_vars dp.desc.nom dp.desc.typ)
+            (fun (dp : param desc) -> Hashtbl.add env_vars dp.desc.nom dp.desc.typ.desc)
             constr.params ;
           verifie_bloc_instrs None dconst.loc env_typage env_vars constr.body 
     in

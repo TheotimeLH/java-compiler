@@ -145,8 +145,8 @@ expr_simple:
 	| NEW ; nt=ntype ; LPAR ; l=separated_list(VIRG,expr) ; RPAR 
 													{ { loc=$startpos,$endpos ; desc = ESnew(nt,l) } }
 	| a=acces ; LPAR ; l=separated_list(VIRG,expr) ; RPAR
-													{ { loc=$startpos,$endpos ; desc = ESacces(a,l) } }
-	| a=acces 							{ { loc=$startpos,$endpos ; desc = ESacces(a,[]) } }
+													{ { loc=$startpos,$endpos ; desc = ESacces_meth(a,l) } }
+	| a=acces 							{ { loc=$startpos,$endpos ; desc = ESacces_var(a) } }
 
 %inline operateur:
 	| x=EQU | x=CMP | x=RING 	{ x }

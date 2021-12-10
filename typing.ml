@@ -1,28 +1,3 @@
-(* J'ai besoin d'un graphe pour décrire les relations d'héritage entre les classes 
-   et les interfaces. On fait un tri topologique (error si cycle) puis ensuite on va 
-   vérifier les types en suivant ce tri topologique (qui a pour racine la classe
-   Object, qui a au moins un fils String, ayant pour seule méthode equal).
-   -> on en profite pour vérifier que chaque C/I n'est définie qu'une fois
-   -> qu'on est sous-classe d'une classe existence (qui n'est pas String)
-   -> idem pour I
-
-   2) On reparcourt les C et les I dans l'ordre topo (d'abord les I ?):
-       i) On commence par vérifier les paramtype (à partir des C_I déjà faits).
-       On a surtout besoin de vérifier ce qui existe (si on a les bons champs, 
-       les bonnes méthodes etc, si les redéfinitions sont correctes) et que tout
-       est défini proprememnt (pas deux champs/meth même nom, exactement un 
-       constructeur, au plus une méthode au nom de I etc).
-       
-       ii) Une fois qu'on a l'état des lieux (on est obligé de le faire en deux temps
-       car l'ordre des déclarations n'importe pas) on vérifie que les corps des
-       methodes et du constructeurs font sens)
-    
-    Doit-on faire i) pour toutes les C/I avant de passer au ii) ? OUI
-    car on peut utiliser les constructeurs des uns dans tous les autres, idem
-    les méthodes).
-   
-   Que doit-on garder du typage ? *)
-
 open Ast
 open Ast_typing
 
@@ -56,14 +31,14 @@ let type_fichier l_ci =
       On accède aux environnements locaux via la table : env_locaux, créée lors 
       de l'étape de vérification des vraies ci. *)  
 
-  let graph_c = Hashtbl.create 5 in (* Hashtbl : id -> node *)
-  let graph_i = Hashtbl.create 5 in (* Hashtbl : id -> node *)
-  let ci_params = Hashtbl.create 5 in (* Hashtbl : id (ci) -> paramtype desc list *)
-  let ci_params_tri = Hashtbl.create 5 in (* Hashtbl : id (ci) -> ident list *)
-  let i_body = Hashtbl.create 5 in (* Hashtbl : id -> proto desc list *)
-  let c_body = Hashtbl.create 5 in (* Hashtbl : id -> decl desc list *)
-  let c_constr = Hashtbl.create 5 in (* Hashtbl : id -> ty_constr *)
-  let body_main = ref [] in (* instr desc list *)
+  let graph_c : (ident,node) Hashtbl.t = Hashtbl.create 5 in
+  let graph_i : (ident,node) Hashtbl.t = Hashtbl.create 5 in 
+  let ci_params : (ident,paramtype desc list) Hashtbl.t = Hashtbl.create 5 in
+  let ci_params_tri : (ident,ident list) Hashtbl.t = Hashtbl.create 5 in
+  let i_body : (ident,proto desc list) Hashtbl.t = Hashtbl.create 5 in 
+  let c_body : (ident,desc desc list) Hashtbl.t = Hashtbl.create 5 in 
+  let c_constr : (ident,info_constr) Hashtbl.t = Hashtbl.create 5 in
+  let body_main : instr desc list = ref [] in
   
   let params_to_ids params = (* T1 , ... , Tn, juste les idents *)
     List.map (fun (p : paramtype desc) -> (p.desc).nom) params 
@@ -87,19 +62,20 @@ let type_fichier l_ci =
     env_typage_global.c <- IdSet.add nom env_typage_global.c in
   let new_i nom =
     new_ci nom ;
-    env_typage_global.i <- IdSet.add nom env_typage_global.i in
+    env_typage_global.i <- IdSet.addp nom env_typage_global.i in
 
   env_typage_global.c <- IdSet.of_list ["Main";"Object";"String"] ;
   env_typage_global.ci <- env_typage_global.c ;
   
-  Hashtbl.add env_typage_global.methodes "String" 
-    (MethSet.singleton 
-      {nom = "equals" ; 
-       typ = Some {loc = loc_dum ; desc = Jboolean} ;
-       types_params = []} ) ;
-  Hashtbl.add env_typage_global.champs "String" ChSet.empty ;
-  Hashtbl.add env_typage_global.methodes "Object" MethSet.empty ;
-  Hashtbl.add env_typage_global.champs "Object" ChSet.empty ;
+  let tabmeth_String = Hashtbl.create 1 in
+  Hashtbl.add tabmeth_String "equals"
+    {nom="equals" ; id_ci = "String" ;
+     typ=Some {loc = loc_dum ; desc = Jboolean} ; types_params=[]} ;
+  Hashtbl.add env_typage_global.methodes "String" tabmeth_String ;
+  Hashtbl.add env_typage_global.methodes "Object" (Hashtbl.create 0) ;
+  let tabch_empty = Hashtbl.create 0 in
+  Hashtbl.add env_typage_global.champs "String" tabch_empty ;
+  Hashtbl.add env_typage_global.champs "Object" tabch_empty ;
 
 
   (* ===== GRAPHES DES RELATIONS ENTRE LES C / LES I ===== *)
@@ -618,16 +594,18 @@ let type_fichier l_ci =
   (* Je dis que deux méthodes sont en relations, si l'une appartient à une sur-ci
      de l'autre, ou si une ci hérite des deux. 
      Les paramètres doivent alors être de même types.*)
-  let verifie_meme_parametres (meth : ty_methode) (meth' : ty_methode) =
+  let verifie_meme_parametres (meth : info_methode) (meth' : info_methode) loc=
     try List.iter2
       (fun (d_jtype : jtype desc) (d_jtype' : jtype desc) ->
         if not (jtype_equal d_jtype.desc djtype'.desc)
         then raise (Typing_error {loc = d_jtype.loc ;
-          msg = "Deux méthodes en relation doivent avoir des paramètres de même types."}))
+          msg = "Problème avec les méthodes nommées" ^ meth.nom
+             ^ ", deux méthodes en relation doivent avoir des paramètres de même types."}))
       meth.types_params meth'.types_params
     with | Invalid_argument _ -> 
         raise (Typing_error {loc = loc ;
-          msg = "Deux méthodes en relation doivent avoir autant de paramètres."})
+          msg = "Problème avec les méthodes nommées" ^ meth.nom
+             ^ ", deux méthodes en relation doivent avoir autant de paramètres."})
   in
 
   let recup_methodes (dci' : ntype desc) env_typage =
@@ -639,14 +617,18 @@ let type_fichier l_ci =
           interface K extends I<String>,J<String> {String m();} >> *)
     let sigma = fait_sigma id_ci' dci'.loc l_ntypes_ci' in
     
-    MethSet.map 
-      (fun meth -> {nom = meth.nom ; 
+    let sur_methodes : methtab = Hashtbl.create 0 in
+    Hashtbl.iter
+      (fun nom (meth : info_methode) -> 
+        Hashtbl.add sur_methodes nom 
+         {nom = meth.nom ; id_ci = meth.id_ci ; 
           typ = substi_djo sigma meth.typ ; 
           types_params = substi_list_dj sigma meth.types_params } )
-      (Hashtbl.find env_typage.methodes id_ci')
+      (Hashtbl.find env_typage.methodes id_ci') ;
+    sur_methodes
   in
   
-  (* BUT : Renvoyer un MethSet contenant toutes les méthodes héritées.
+  (* BUT : Renvoyer une methtab contenant toutes les méthodes héritées.
        
        ATTENTION : si une méthode est présente dans deux ci mères (comme ce
        peut être le cas avec des interfaces), alors :
@@ -661,53 +643,47 @@ let type_fichier l_ci =
        Remarque : on n'a pas besoin de remonter l'arbre des extensions,
        les ci_meres contiennent déjà celles des ancêtres. 
 
-     Dans les faits on utilise plutôt une table qu'un MethSet :
-       methodes_heritees : (ident , (ty_methode,ident)) Hashtbl.t 
-       Ici beaucoup plus pratique qu'un MethSet, car on veut retrouver 
-       les méthodes déjà héritées, à partir de leur nom. 
-       On sauvegarde aussi le nom de la ci par laquelle on hérite, pour 
-       envoyer des messages d'erreurs précis.     *)
+       Remarque : Dans le info_methode, on retient aussi le nom de la ci 
+       d'où provient cette méthode, pratique pour envoyer des messages d'erreurs précis.*)
 
   let heritage_d'une_surci id_ic loc_ci methode_heritees env_typage (dci' : ntype desc) =
     let Ntype (id_ci',l_ntypes_ci') = dci'.desc in
     let sigma = fait_sigma id_ci' dci'.loc l_ntypes_ci' in
     let sur_methodes = recup_methodes dci' env_typage in
-    let traite_methode (meth' : ty_methode) =
-      let {nom} = meth' in
+    let traite_methode nom (meth' : info_methode) =
       match (Hashtbl.find_opt methodes_heritees nom) with
-        | None -> Hashtbl.add methodes_heritees nom (meth',id_ci')
-        | Some (meth'',id_ci'') -> 
-            verifie_meme_parametres meth' meth'' ;
+        | None -> Hashtbl.add methodes_heritees nom meth'
+        | Some meth'' -> 
+            verifie_meme_parametres meth' meth'' loc_ci;
             if not (extends_jtype_opt meth''.typ meth'.typ env_typage)
             then if (extends_jtype_opt meth'.typ meth''.typ env_typage)
-            then Hashtbl.replace methodes_heritees nom (meth',id_ci')
+            then Hashtbl.replace methodes_heritees nom meth'
             else raise (Typing_error {loc = loc_ci ;
               msg = id_ci ^ " hérite de la méthode " ^ nom ^ " via "
                   ^ id_ci' " avec le type de retour " ^ (str_of_jtp_opt meth'.typ)
-                  ^ " mais aussi via " ^ id_ci'' ^ " avec le type de retour "
+                  ^ " mais aussi via " ^ meth''.id_ci ^ " avec le type de retour "
                   ^ (str_of_jtp_opt meth''.typ) 
                   ^ " or ces types ne sont pas en relation, l'un doit extends l'autre."})
+            (* Au lieu de fournir juste loc_ci, ça serait cool de remonter l'arbre
+               de extends en montrant d'où viennent les méthodes en conflits *)
             (* else on n'a pas à changer *)
             (* ATTENTION, je ne garantie rien dans les tests d'extends, 
                l'env de typage peut être très bizarre, dans le cas où des
                paramstype reprennent le nom de vraies ci. 
                Cf ma remarque à ce propos dans verifie_et_fait_paramstype. *) 
     in
-    MethSet.iter traite_methode sur_methodes
+    Hashtbl.iter traite_methode sur_methodes
   in
   let herite_methodes id_ci loc_ci env_typage =
-    let methodes_heritees = Hashtbl.create 5 in 
+    let methodes_heritees : methtab = Hashtbl.create 5 in 
     let extends = Hashtbl.find env_typage.extends id_ci in
     List.iter (heritage_d'une_surci id_ci loc_ci env_typage methodes_heritees) extends ;
     methodes_heritees 
   in
 
 
-  let verifie_et_fait_methode (type_retour : jtype desc option)  nom params 
-          loc env_typage methodes_heritees =
-    (* Pour rappel, methodes_heritees : (ident , (ty_methode,ident)) Hashtbl.t
-       qui prend un nom de méthode en entrée, et donne (si elle existe) la
-       méthode héritée, et le nom de la ci mère dont on hérite *) 
+  let verifie_et_fait_methode (type_retour : jtype desc option) nom params id_ci 
+          loc env_typage methodes =
     (* vérifie type de retour *)
     begin match type_retour with
       | None -> ()
@@ -720,24 +696,18 @@ let type_fichier l_ci =
     (* vérifie rédéfinition propre *)
     let types_params = 
       List.map (fun (dp : param desc) -> (dp.desc).typ) params in
-    let meth = {nom = nom ; typ = type_retour ; types_params = types_params} in
-    begin match (Hashtbl.find_opt methodes_heritees nom) with
+    let meth = {nom = nom ; id_ci = id_ci ; 
+      typ = type_retour ; types_params = types_params} in
+    begin match (Hashtbl.find_opt methodes nom) with
       | None -> () 
-      | Some (meth',id_ci') ->
-          verifie_meme_parametres meth meth' ;
+      | Some meth' ->
+          verifie_meme_parametres meth meth' loc;
           verifie_sous_type_opt meth.typ meth'.typ env_typage end 
-     Hashtbl.replace methodes_heritees nom (meth,id_ci)
+     Hashtbl.replace methodes nom meth
      (* Pour les avoir toutes au même endroit...  
         d'ailleurs c'est forcément la nouvelle def qui l'emporte et là
         la contrainte est plus souple, avec un sous_type et non extends *)
      (* Là clairement on peut bien mieux faire en terme de message d'erreur :/ *)
-  in
-  let tab_meth_to_MethSet methodes_heritees =
-    let l_methodes = ref [] in
-    Hashtbl.iter
-      (fun nom (meth,id_ci') -> l_methodes := meth :: !l_methodes)
-      methodes_heritees ;
-    MethSet.of_list !l_methodes
   in
   (* ======================= *)
 
@@ -751,12 +721,12 @@ let type_fichier l_ci =
     let fait_un_paramtype id_t =
       let loc_t = Hashtbl.find env_typage.tab_loc id_t in
       (* = Les méthodes = *)
-      let methodes_heritees = Hashtbl.create 5 in 
+      let methodes_heritees : methtab = Hashtbl.create 5 in 
       let dc_mere = List.hd (Hashtbl.find env_typage.extends id_t) in
       heritage_d'une_surci id_t loc_t methodes_heritees dc_mere ;
       let implements = Hashtbl.find env_typage.implements id_t in
       List.iter (heritage_d'une_surci id_t loc_t methodes_heritees env_typage) implements ;
-      Hashtbl.add env_typage.methodes id_t (tab_meth_to_MethSet methodes_heritees) ; 
+      Hashtbl.add env_typage.methodes id_t methodes_heritees ; 
       (* ATTENTION, je n'ai pas vérifié le comportement de java quand on
          hérite d'une méthode m() renvoyant un T1 et qu'on implémente une interface
          qui demande m() renvoyant un T2. Actuellement je prends le plus petit des deux.
@@ -765,11 +735,14 @@ let type_fichier l_ci =
       (* = Les champs = *)
       let Ntype(id_m,l_ntypes_m) = dc_mere.desc in
       let sigma = fait_sigma id_m dc_mere.loc l_ntypes_m in
-      let champs = ChSet.map 
-        (fun champ -> {nom = champ.nom ; 
+      let champs : chtab = Hashtbl.create 5 in
+      Hashtbl.iter
+        (fun nom (champ : info_champ) ->
+          Hashtbl.add champs nom
+            {nom = champ.nom ; id_c = champ.id_c ; 
             typ = substi_dj sigma champ.typ } )
         (Hashtbl.find env_typage.champs id_m) in 
-      Hashtbl.add env_typage.champs id_t champs ;
+      Hashtbl.add env_typage.champs id_t champs
     in
     List.iter fait_un_paramtype params_id_tri
   in
@@ -807,17 +780,23 @@ let type_fichier l_ci =
 
     let (body : proto desc list) = Hashtbl.find i_body id_i in
     let loc_i = Hashtbl.find env_typage.tab_loc id_i in
-    let methodes_heritees = herite_methodes id_i loc_i env_typage in 
+    let methodes = herite_methodes id_i loc_i env_typage in 
     let ajoute_meth (d_proto : proto desc) =
       let pro = d_proto.desc in
-      verifie_et_fait_methode pro.typ pro.nom pro.params 
-        d_proto.loc env_typage methodes_heritees 
+      verifie_et_fait_methode pro.typ pro.nom pro.params id_i 
+        d_proto.loc env_typage methodes 
     in
     List.iter ajoute_meth body ;
-    Hashtbl.add env_typage_global.methodes id_i (tab_meth_to_MethSet methodes_heritees)
+    Hashtbl.add env_typage_global.methodes id_i methodes
     (* Attention : les méthodes de l'interface partent dans l'env global !!
        Et c'est tout ce qu'on garde, on ne sauvegarde pas l'env local,
-       pour les interfaces on s'arrête là. *)
+       pour les interfaces on s'arrête là. 
+       On pourrait bidouiller pour rajouter les méthodes et les champs des vraies
+       ci directement dans tous les env_locaux. En initialisant au tout début 
+       des Hashtbl vides pour chaque vraies ci dans l'env_typage_global, puis en
+       rajoutant les méthodes et les champs à ces tables. Qui serait commune à 
+       tout les env_typage, malgré le env_copy. 
+       Mais c'est inutilement compliqué. *)
   in
   
   List.iter verifie_interface !list_intf ;
@@ -868,30 +847,43 @@ let type_fichier l_ci =
        
     (* Déclaration du corps : des champs, des méthodes et du constructeur  *)
     let body = Hashtbl.find c_body id_c in
-    let methodes_heritees = Hashtbl.create 5 in
-    heritage_d'une_surci id_c loc_c methodes_heritees dc_mere ;
-    let champs = ref (ChSet.map 
-      (fun champ -> {nom = champ.nom ; 
-        typ = substi_dj sigma champ.typ } )
-      (Hashtbl.find env_typage.champs id_m)) in  
+    let methodes : methtab = Hashtbl.create 5 in
+    let champs : chtab = Hashtbl.create 5 in
+    (* J'ai fait le choix après de nombreux essais, d'utiliser des methtab et des
+       chtab pour pouvoir 1) retrouver les methodes/champs rapidement pendant
+       la vérification des corps (les accès) (d'où l'abandon des MethSet),
+       et 2) pour pouvoir en rajouter facilement (d'où des Hashtbl et non des Map) *)
+    (* Héritage *)
+    heritage_d'une_surci id_c loc_c methodes dc_mere ;
+    Hashtbl.iter
+      (fun nom (champ : info_champ) -> 
+        Hashtbl.add champs nom 
+         {nom = champ.nom ; id_c = champ.id_c ;
+          typ = substi_dj sigma champ.typ } )
+      (Hashtbl.find env_typage.champs id_m) ;
+
+    (* Nouveaux *)
     let verifie_decl (decl : decl desc) = match decl.desc with
       | Dchamp (dj,nom) ->
-          let champ = {nom = nom ; typ = dj} in
-          if ChSet.mem champ !champs (* Le equal du module Champ compare juste les noms *)
+          let champ = {nom = nom ; id_c = id_c ; typ = dj} in
+          if Hashtbl.mem !champs nom
           then raise (Typing_error {loc = decl.loc ;
             msg = id_c ^ " hérite déjà d'un champ " ^ nom 
               ^ " il est interdit de rédéfinir un champ."})
             (* l'erreur vaut aussi si on définit 2 fois un champ au sein d'une classe *)
           else (verifie_bf djtype.desc ;
-            champs := ChSet.add champ !champs)
+            Hashtbl.add champs nom champ )
 
       | Dmeth dmeth ->
           let d_proto = dmeth.desc.info in 
           let pro = d_proto.desc in (* les deux desc sont redondants ! *)
-          verifie_et_fait_methode pro.typ pro.nom pro.params 
-            d_proto.loc env_typage methodes_heritees ;
+          verifie_et_fait_methode pro.typ pro.nom pro.params id_c
+            d_proto.loc env_typage methodes ;
       
-      | Dconstr dconstr -> 
+      | Dconstr dconstr ->
+          if Hashtbl.mem c_constr id_c 
+          then raise (Typing_error {loc = decl.loc ;
+            msg = "Une classe ne peut avoir plus d'un constructeur"}) ;
           let {nom ; params} = dconstr.desc in
           if nom <> id_c then raise (Typing_error {loc = decl.loc ;
             msg = "Le constructeur doit avoir le même nom que la classe"}) ;
@@ -901,8 +893,10 @@ let type_fichier l_ci =
           Hashtbl.add c_constr id_c params 
     in
     List.iter verifie_decl body ; 
-    Hashtbl.add env_typage_global.champs id_c !champs ;
-    Hashtbl.add env_typage_global.methodes id_c (tab_meth_to_MethSet methodes_heritees) ;
+    if not (Hashtbl.mem c_constr id_c)
+    then Hashtbl.add c_constr id_c [] ;
+    Hashtbl.add env_typage_global.champs id_c champs ;
+    Hashtbl.add env_typage_global.methodes id_c methodes ;
     (* Informations qui partent dans le GLOBAL *)
 
     (* Vérification des implements :
@@ -913,16 +907,16 @@ let type_fichier l_ci =
       let Ntype (id_i,l_ntypes_i) = di.desc in
       let sigma = fait_sigma id_i di.loc l_ntypes_i in
       let meth_demandees = recup_methodes di env_typage in
-      let verifie_meth (meth_i : ty_methode) = 
-        match Hashtbl.find_opt methodes_heritees meth_i.nom with
+      let verifie_meth nom (meth_i : info_methode) = 
+        match Hashtbl.find_opt methodes nom with
         | None -> raise (Typing_error {loc = di.loc ;
             msg = id_c ^ " n'implémente pas " ^ id_i 
               ^ " parce qu'elle n'a pas de méthode " ^ nom})
         | Some meth_c -> 
-            verifie_meme_parametres meth_i meth_c ;
+            verifie_meme_parametres meth_i meth_c di.loc ;
             verifie_sous_type_opt meth_c.typ meth_i.typ env_typage
       in
-      MethSet.iter verifie_meth meth_demandees 
+      Hashtbl.iter verifie_meth meth_demandees 
     in
     List.iter verification_implements implements ;
 
@@ -938,7 +932,9 @@ let type_fichier l_ci =
       let env_typage = Hashtbl.find env_locaux id_c in
       env_typage.methodes <- Hashtbl.copy env_typage_global.methodes ; 
       env_typage.champs <- Hashtbl.copy env_typage_global.champs ;
-      (* On actualise, en prennant toutes les méthodes des vraies ci,
+      (* Des Hashtbl de methtbl. On doit copy les Hashtbl, mais les methtbl peuvent
+         être les mêmes !
+         On actualise, en prennant toutes les méthodes des vraies ci,
          sachant qu'on ne risque pas d'écraser quoique ce soit, dans les env_locaux
          ces champs étaient restés vides jusqu'ici. *)
       recup_champs_methodes_paramstype id_c env_typage )
@@ -955,7 +951,7 @@ let type_fichier l_ci =
      va utiliser, en plus des env_typage (locaux), des env_vars, qui sont en faites
      de simple (ident, jtype) Hashtbl.t   *)
 
-  (* ATTENTION C'EST ICI QUE NOUS DEVRIONS PRODUIRE LE NOUVEL ARBRE DE SYNTAXE
+  (* ATTENTION C'EST ICI QUE NOUS PRODUIRONS LE NOUVEL ARBRE DE SYNTAXE
      MAIS VU MON RETARD, JE TIENS D'ABORD À TESTER LE TYPEUR    *)
 
   (* Les accès gèrent les valeurs gauches *)
@@ -1044,11 +1040,8 @@ let type_fichier l_ci =
                     ^ " est appelé sur trop ou pas assez de paramètres"})
         end
     
-    | ESacces dacces l_dexpr -> 
-        (* Regroupe deux cas de la grammaire : les appels de méthodes
-           et les accès aux variables ! *)
-        (* AHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHH *)
-
+    | ESacces_meth dacces l_dexpr -> 
+    | ESacces_var daccces ->
   
 
   let verifie_blocs_instrs (type_r : jtype desc option) loc_bloc 
@@ -1130,5 +1123,3 @@ let type_fichier l_ci =
   verifie_bloc_instrs None loc_main env_typage_global env_vars !body_main ;
 in
 
-    ATTENTION À RAJOUTER STRING.EQUALS ET TRAITER SYSTEM.OUT.PRINT ET PRINTLN
-    ATTENTION AU CONSTRUCTEUR OBJECT()

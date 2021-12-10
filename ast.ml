@@ -40,7 +40,8 @@ and expr_simple =
 	|	ESthis
 	|	ESexpr of expr desc
 	|	ESnew of ntype desc * expr desc list
-	|	ESacces of acces desc * expr desc list
+	|	ESacces_meth of acces desc * expr desc list
+  | ESacces_var of acces desc
 
 type instr = 
 	| Inil

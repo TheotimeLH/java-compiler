@@ -192,7 +192,7 @@ let type_fichier l_ci =
   (* === Pour les substitutions des paramstype avec sigma === *)
   let fait_sigma ci loc l_ntypes =
     let sigma = Hashtbl.create (List.length l_ntypes) in
-    let dparams = Hashtbl.find ci_params ci_params ci in
+    let dparams = Hashtbl.find ci_params ci in
     let params_id = params_to_ids dparams in
     try List.iter2 
           (fun id (dn : ntype desc) -> 
@@ -214,11 +214,13 @@ let type_fichier l_ci =
     (* Soit id est un paramtype, on le change (d'ailleurs l=[]).
        Soit id est un type construit, qui a potentiellement des paramstypes. *)
   in
-  let substi_dj sigma (dj : jtype desc) = match dj.desc with
-    | Jboolean | Jint -> dj
+  let substi_jt sigma jt = match jt with
+    | Jboolean | Jint -> jt
     | Jtypenull -> failwith "Normalement, le parser fait que ça n'arrive pas"
-    | Jntype dnt -> {loc = dj.loc ; 
-        desc = Jntype ({loc = dnt.loc ; desc = substi sigma dnt.desc})} 
+    | Jntype dnt -> Jntype ({loc = dnt.loc ; desc = substi sigma dnt.desc})
+  in
+  let substi_dj sigma (dj : jtype desc) =
+    {loc = dj.loc ; desc = substi_jt sigma dj.desc}
   in
   let substi_djo sigma (djo : jtype desc option) = match djo with
     | None -> None
@@ -947,22 +949,90 @@ let type_fichier l_ci =
 
 
   (* ===== VERIFICATION DES CORPS ===== *)
-  (* Il nous reste à vérifier les corps, composés d'inscrutions. Pour cela on 
-     va utiliser, en plus des env_typage (locaux), des env_vars, qui sont en faites
-     de simple (ident, jtype) Hashtbl.t   *)
+  (* Il nous reste à vérifier les corps, composés d'inscrutions. Pour cela on utilise
+     en plus des env_typage (locaux), des env_vars : (ident,(jtype,bool)) Hashtbl.t
+     qui pour une variable locale donne son jtype et si elle bien initialisée. 
+     Ce booléen sert si on déclare une variable avec "I x;"
+     "x" sera toujours de type I une interface, mais il faut lui trouver son type
+     effectif, sinon que faire si on demande x.m() (même si l'interface I demande m();)
+     Voir l'exemple tests_perso/test11.java *)
 
   (* ATTENTION C'EST ICI QUE NOUS PRODUIRONS LE NOUVEL ARBRE DE SYNTAXE
      MAIS VU MON RETARD, JE TIENS D'ABORD À TESTER LE TYPEUR    *)
 
-  (* Les accès gèrent les valeurs gauches *)
-  let rec jtype_of_acces =
+  (* J'utilise trois fonctions : jtype_of_acces, jtype_of_expr, jtype_of_expr_s 
+    qui renvoient le jtype de l'acces/l'expr/l'expr_simple donné.e *)
 
+  (* === LES ACCES === *)
+  let rec jtype_of_acces loc_acc env_typage env_vars b = function
+    (* b : true si on demande quelque chose de modifiable : un champ ou une variable,
+       faux sinon, ie si on demande une méthode.
+       Cette fonction renvoie finalement un couple (type,jtype desc list), 
+       avec le type de l'accès mais aussi la liste types_params dans le cas
+       d'une méthode. J'aurais pu faire deux fonctions complètement séparées. *)
+    | Aident id ->
+      if b then 
+        begin match (Hashtbl.find_opt env_vars id) with
+        | Some jt -> jt,[]
+        | None -> 
+          begin match (Hashtbl.find_opt env_vars "this") with
+          | Some (Jntype dn) -> 
+            let Ntype(id_c,_) = dn.desc in
+            let champs = Hashtbl.find env_typage.champs id_c in
+            begin match (Hashtbl.find_opt champs id) with
+            | Some jt -> jt,[]
+            | None -> raise (Typing_error {loc = loc_acc ;
+              msg = id ^ " est inconnue, ni une variable local, ni un champ de this"})
+            end
+          | None -> raise (Typing_error {loc = loc_acc ;
+              msg = id ^ " est inconnue: pas une variable local et il n'y a pas de this \
+                    dans le contexte actuel (probablement Main)"})
+          end
+        end
+      else
+        raise (Typing_error {loc = loc_acc ;
+        msg = id ^ " ne peut être une méthode, une méthode s'écrit toujours en précisant \
+              l'objet sur lequel elle est appliquée" })
+    
+    | Achemin (dexpr_s,id) ->
+      begin match jtype_of_expr_s dexpr_s.loc env_typage env_vars dexpr_s.desc with
+      | Jntype dn ->
+        let Ntype (id_ci,l_ntypes_ci) = dn.desc in
+        let sigma = fait_sigma id_ci loc_dum l_ntypes_ci in
+        (* On pourrait l'enregistrer dans env_vars... *)
+        if b then
+          if not (IdSet.mem id_ci env_typage.c)
+          then raise (Typing_error {loc = dexpr_s.loc ;
+            msg = "Est de type " ^ id_ci ^ " qui n'est pas une classe (ou un paramtype), \
+                   et donc ne possède pas de champs (probablement une interface)"})
+          else begin
+          let champs = Hashtbl.find env_typage.champs id_ci in 
+          begin match (Hashtbl.find_opt champs id) with
+          | None -> raise (Typing_error {loc = loc_acc ;
+              msg = id_ci ^ " ne possède pas de champ " ^ id })
+          | Some champ ->
+              substi_jt sigma champ.typ.desc,[]
+          end end
+        else begin
+          let methodes = Hashtbl.find env_typage.methodes id_ci in
+          begin match Hashtbl.find methodes id with
+          | None  -> raise (Typing_error {loc = loc_acc ;
+              msg = id_ci ^ " ne possède pas de méthode " ^ id })
+          | Some meth ->
+              substi_djo sigma meth.typ,meth.types_params
+          end end
+      
+      | _ -> raise (Typing_error {loc = dexpr_s.loc ;
+            msg = "Les types primitifs n'ont pas de méthodes ou de champ" })
+
+
+  (* === LES EXPRESSIONS === *)
   and jtype_of_expr loc_expr env_typage env_vars = function
     | Enull -> Jtypenull
     | Esimple dexpr_s -> jtype_of_expr dexpr_s.loc env_typage env_vars dexpr_s.desc
     | Eequal (dacces,dexpr) -> (* permet a = b = c qui change b en c puis a en b *)
         let jt_expr = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
-        let jt_acces = jtype_of_acces dacces.loc env_typage env_vars dacces.desc in
+        let jt_acces = fst (jtype_of_acces dacces.loc env_typage env_vars true dacces.desc) in
         if not (sous_type jt_expr jt_acces env_typage)
         then raise (Typing_error {loc=loc_expr ;
           msg = "Pour changer une valeur, il faut un sous-type de ce qui est demandé "
@@ -1008,6 +1078,8 @@ let type_fichier l_ci =
                Dans tous les cas il faudra être plus fin pour produire l'arbre de sortie *)
         end         
 
+
+  (* === LES EXPRESSIONS SIMPLES === *)
   and jtype_of_expr_s loc_expr_s env_typage env_vars = function
     | ESint n -> Jint
     | ESstr s -> Jntype {loc = loc_dum ; desc=Ntype("String",[])}
@@ -1020,6 +1092,7 @@ let type_fichier l_ci =
         else Hashtbl.find env_vars "this"
     | ESexpr dexpr -> jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc 
     | ESnew (dn,params_dexpr) ->
+        verifie_bf (Jntype dn) env_typage ;
         let Ntype(id_c,l_ntypes) = dn.desc in
         if id_c = "Object"
         then begin if l_ntypes = [] then Jntype dn
@@ -1027,7 +1100,8 @@ let type_fichier l_ci =
               msg = "Le constructeur Object() n'attend pas de paramètre"}) end
         else begin match Hashtbl.find_opt c_constr id_c with
           | None -> raise (Typing_error {loc = dn.loc ;
-              msg = id_c ^ " ne possède pas de constructeur." })
+              msg = id_c ^ " ne possède pas de constructeur, est-ce bien une classe \
+                et non interface ou un paramtype par exemple" })
           | Some params_dn ->
               try List.iter2 
                 (fun (dn : param desc) (dexpr : expr desc) ->
@@ -1039,11 +1113,25 @@ let type_fichier l_ci =
                 msg = "Le constructeur de " ^ id_c 
                     ^ " est appelé sur trop ou pas assez de paramètres"})
         end
-    
-    | ESacces_meth dacces l_dexpr -> 
-    | ESacces_var daccces ->
-  
 
+    | ESacces_meth dacces l_dexpr -> 
+        let jt_acces,types_params = 
+          jtype_of_acces dacces.loc env_typage env_vars false dacces.desc in
+        begin
+        try List.iter2
+          (fun (jd_demande : jtype desc) (dexpr_donnee : expr desc) ->
+            let jt_expr = jtype_of_expr dexpr_donnee.loc env_typage env_vars dexpr_donnee.desc in
+            verifie_sous_type jt_expr dexpr_donnee.loc jd_demande.desc env_typage)
+          types_params l_dexpr
+        with | Invalid_argument _ -> raise (Typing_error {loc = loc_expr_s ;
+            msg = "La méthode n'est pas appliqué avec le bon nombre de paramètre"})
+        end
+        jt_acces
+    | ESacces_var dacces ->
+        fst (jtype_of_acces dacces.loc env_typage env_vars true dacces.desc)
+  in
+
+  (* === LES INSTRUCTIONS === *)
   let verifie_blocs_instrs (type_r : jtype desc option) loc_bloc 
         env_typage env_vars (instrs : instr desc list) = match instrs with
     | [] -> 
@@ -1072,9 +1160,17 @@ let type_fichier l_ci =
               ignore (jtype_of_expr_s dexpr_s.loc env_typage env_vars dexpr_s.desc)
               (* Attention, ici on autorise ce genre de chose pour simplifier la
                  grammaire, mais en java c'est interdit, donc on ignore le retour *)
-          | Idef (dacc,dexpr)
+          | Idef (dacc,dexpr) ->
+              let jt_acc = fst(jtype_of_acc dacc.loc env_typage env_vars true dacc.desc) in
+              let jt_expr = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+              verifie_sous_type jt_expr dexpr.loc jt_acc env_typage
+          | Iinit (dj,i) ->
+
+
           end
           verifie_blocs_instrs type_r loc_bloc env_typage env_vars q 
+          (* J'ai séparé Ireturn du reste (en rajoutant un match) pour écrire
+             une seule fois verifie_bloc.... q. *)
       end
   in
   
@@ -1085,7 +1181,7 @@ let type_fichier l_ci =
     let body = Hashtbl.find c_body id_c in
     let params_dn = List.map
       (fun (dpt : paramtype desc) ->
-        {loc = dpt.loc ; desc = Ntype (dpt.desc.nom,dpt.desc.extds) })
+        {loc = dpt.loc ; desc = Ntype (dpt.desc.nom,[]) })
       (Hashtbl.find ci_params id_c) in
     let type_this = Jntype {loc = loc_c ; desc = Ntype (id_c , params_dn)} in
     (* this est une variable spéciale, de type C<T1,...,Tk> *)

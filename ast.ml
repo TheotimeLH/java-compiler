@@ -46,9 +46,9 @@ and expr_simple =
 type instr = 
 	| Inil
 	|	Isimple of expr_simple desc
-	|	Idef of acces desc * expr desc
-	|	Iinit of jtype desc * ident
-	|	Iinit_def of jtype desc * ident * expr desc
+	|	Iequal of acces desc * expr desc
+	|	Idef of jtype desc * ident
+	|	Idef_init of jtype desc * ident * expr desc
 	|	Iif of expr desc * instr desc * instr desc
 	|	Iwhile of expr desc * instr desc
 	|	Ibloc of instr desc list

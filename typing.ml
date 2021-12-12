@@ -402,7 +402,7 @@ let type_fichier l_ci =
       | Some dj1 , Some dj2 ->
           verifie_sous_type dj1.desc dj1.loc dj1.desc env_typage
       | _ , _ -> raise (Typing_error {loc = loc1 ;
-      msg = (str_of_jtp_opt djo1) ^ " n'est pas un sous-type de " ^ (str_of_jtp_opt djo2) })
+      msg = (str_of_djo djo1) ^ " n'est pas un sous-type de " ^ (str_of_djo djo2) })
   in
   (* ======================= *)
 
@@ -662,9 +662,9 @@ let type_fichier l_ci =
             then Hashtbl.replace methodes_heritees nom meth'
             else raise (Typing_error {loc = loc_ci ;
               msg = id_ci ^ " hérite de la méthode " ^ nom ^ " via "
-                  ^ id_ci' " avec le type de retour " ^ (str_of_jtp_opt meth'.typ)
+                  ^ id_ci' " avec le type de retour " ^ (str_of_djo meth'.typ)
                   ^ " mais aussi via " ^ meth''.id_ci ^ " avec le type de retour "
-                  ^ (str_of_jtp_opt meth''.typ) 
+                  ^ (str_of_djo meth''.typ) 
                   ^ " or ces types ne sont pas en relation, l'un doit extends l'autre."})
             (* Au lieu de fournir juste loc_ci, ça serait cool de remonter l'arbre
                de extends en montrant d'où viennent les méthodes en conflits *)
@@ -950,41 +950,84 @@ let type_fichier l_ci =
 
   (* ===== VERIFICATION DES CORPS ===== *)
   (* Il nous reste à vérifier les corps, composés d'inscrutions. Pour cela on utilise
-     en plus des env_typage (locaux), des env_vars : (ident,(jtype,bool)) Hashtbl.t
-     qui pour une variable locale donne son jtype et si elle bien initialisée. 
+     en plus des env_typage (locaux), des env_vars une info_var IdMap.t 
+     qui pour une variable locale donne son jtype et si elle est initialisée. 
      Ce booléen sert si on déclare une variable avec "I x;"
      "x" sera toujours de type I une interface, mais il faut lui trouver son type
      effectif, sinon que faire si on demande x.m() (même si l'interface I demande m();)
-     Voir l'exemple tests_perso/test11.java *)
+
+     Mais on ne peut pas garder le type effectif, car on ne le connait pas forcément :
+     << I c;
+        if (b) {c = new C(7);}
+          {c = new A(4);}
+      System.out.print(c.m());>>
+     Selon la valeur de b, on utilise une méthode différente !
+
+     On voit ici une autre difficulté, c peut être initialisée sous condition !
+     Et là ça devient obscure, en effet si c est initialisée dans les deux options 
+     (b true ou false), c'est toujours ok. En revanche si c est initilisée dans une 
+     seule option, et si b est true ou false, alors on peut quand même considérer
+     que c est toujours initialisée. Ahhhhhhhhhhhhhhhhhhhhhh
+
+     Donc pour le coup j'ai besoin d'une Map, pour pouvoir chercher dans les deux branches
+     voir quelles variables sont initialisées. Si certaines étaient dans la map mère,
+     non initialisées, et qu'elles sont maintenant initialisées dans les deux chemins,
+     alors elles deviennent initialisées dans la map mère.
+     Pour b = true ou b = false, je fais un cas particulier.
+     Il faut gérer les while de même.
+
+     Ça se complique encore davantage avec ce genre de chose :
+     << I c;
+        int n = (c = new C(7)).m(); >>
+
+     Voir tests_perso/test11.java pour plus d'exemples.
+
+     J'utilise donc trois fonctions : jtype_of_acces, jtype_of_expr, jtype_of_expr_s
+     qui renvoie un triplet (nom_var,jtype option,env_vars) 
+     (excepté pour jtype_of_acces, voir plus bas)
+      - nom_var renseigne le nom de la variable dont on parle: 
+        - si c'est une variable on utilise le constructeur Nom of ident
+        - si c'est un objet primitif, on utilise Muet (par exemple pour 42 ou null)
+        - enfin si c'est un objet juste créé on utilise New
+      - Some le jtype de ce dont on parle, None si void
+      --> J'ai hate de passer les jtype option en Jvoid
+      - La nouvelle Map env_vars (on a pu initialiser des variables)
+
+     Exemple : 
+     - pour (adrien.ville_natale.nb_d'habitants = 700) on renvoie (Nom "adrien",Some int)
+     - pour (new C(7)).m() on renvoie (New,type de retour de m dans C) *)
 
   (* ATTENTION C'EST ICI QUE NOUS PRODUIRONS LE NOUVEL ARBRE DE SYNTAXE
      MAIS VU MON RETARD, JE TIENS D'ABORD À TESTER LE TYPEUR    *)
-
-  (* J'utilise trois fonctions : jtype_of_acces, jtype_of_expr, jtype_of_expr_s 
-    qui renvoient le jtype de l'acces/l'expr/l'expr_simple donné.e *)
 
   (* === LES ACCES === *)
   let rec jtype_of_acces loc_acc env_typage env_vars b = function
     (* b : true si on demande quelque chose de modifiable : un champ ou une variable,
        faux sinon, ie si on demande une méthode.
-       Cette fonction renvoie finalement un couple (type,jtype desc list), 
-       avec le type de l'accès mais aussi la liste types_params dans le cas
-       d'une méthode. J'aurais pu faire deux fonctions complètement séparées. *)
+       J'aurais pu faire deux fonctions complètement séparées.
+
+       Cette fonction renvoie finalement un quadruplet 
+       (nom_var,jtype option,jtype desc list , env_vars) :
+         - Son nom (pour le coup toujours un Nom of ident)
+         - Le type de la variable à laquelle on accède. (Pour un champ, le type du champ,
+         pour une méthode, le type de retour de la méthode ! Potentiellement void... )
+         - La liste types_params dans le cas d'une méthode, [] sinon
+         - La nouvelle Map env_vars, car dans l'expr_simple on a pu la modifier *)
     | Aident id ->
       if b then 
-        begin match (Hashtbl.find_opt env_vars id) with
-        | Some jt -> jt,[]
+        begin match (IdMap.find_opt id env_vars) with
+        | Some {jt} -> (Nom id,Some jt,[],env_vars)
         | None -> 
-          begin match (Hashtbl.find_opt env_vars "this") with
-          | Some (Jntype dn) -> 
+          begin match (IdMap.find_opt "this" env_vars) with
+          | Some {jt = Jntype dn} -> 
             let Ntype(id_c,_) = dn.desc in
             let champs = Hashtbl.find env_typage.champs id_c in
             begin match (Hashtbl.find_opt champs id) with
-            | Some jt -> jt,[]
+            | Some jt -> (Nom "this",Some jt,[],env_vars)
             | None -> raise (Typing_error {loc = loc_acc ;
               msg = id ^ " est inconnue, ni une variable local, ni un champ de this"})
             end
-          | None -> raise (Typing_error {loc = loc_acc ;
+          | _ (*None*) -> raise (Typing_error {loc = loc_acc ;
               msg = id ^ " est inconnue: pas une variable local et il n'y a pas de this \
                     dans le contexte actuel (probablement Main)"})
           end
@@ -996,7 +1039,10 @@ let type_fichier l_ci =
     
     | Achemin (dexpr_s,id) ->
       begin match jtype_of_expr_s dexpr_s.loc env_typage env_vars dexpr_s.desc with
-      | Jntype dn ->
+      (* ce qu'on nous donne est initialisé ! *)
+      | (Muet,_,_) -> raise (Typing_error {loc = dexpr_s.loc ;
+            msg = "Les objets primitifs n'ont pas de méthodes ou de champs" })
+      | (nom_var, Some (Jntype dn),env_vars') ->
         let Ntype (id_ci,l_ntypes_ci) = dn.desc in
         let sigma = fait_sigma id_ci loc_dum l_ntypes_ci in
         (* On pourrait l'enregistrer dans env_vars... *)
@@ -1011,52 +1057,95 @@ let type_fichier l_ci =
           | None -> raise (Typing_error {loc = loc_acc ;
               msg = id_ci ^ " ne possède pas de champ " ^ id })
           | Some champ ->
-              substi_jt sigma champ.typ.desc,[]
+              (nom_var,Some (substi_jt sigma champ.typ.desc),[],env_vars')
           end end
         else begin
           let methodes = Hashtbl.find env_typage.methodes id_ci in
           begin match Hashtbl.find methodes id with
           | None  -> raise (Typing_error {loc = loc_acc ;
               msg = id_ci ^ " ne possède pas de méthode " ^ id })
-          | Some meth ->
-              substi_djo sigma meth.typ,meth.types_params
+          | Some meth -> 
+            (*AHHHHH Il faut que j'arrête avec ces jtype desc option
+            déjà jtype option desc serait mieux, mais finalement je veux un Jvoid
+            comme un Jstring *)
+            (nom_var,
+            begin match (substi_djo sigma meth.typ) with
+            | None -> None
+            | Some dj -> Some dj
+            end , meth.types_params , env_vars')
           end end
       
-      | _ -> raise (Typing_error {loc = dexpr_s.loc ;
-            msg = "Les types primitifs n'ont pas de méthodes ou de champ" })
+      | (_,_,_) -> raise (Typing_error {loc = dexpr_s.loc ;
+            msg = "Les types primitifs n'ont pas de méthodes ou de champs" })
 
 
   (* === LES EXPRESSIONS === *)
-  and jtype_of_expr loc_expr env_typage env_vars = function
-    | Enull -> Jtypenull
-    | Esimple dexpr_s -> jtype_of_expr dexpr_s.loc env_typage env_vars dexpr_s.desc
-    | Eequal (dacces,dexpr) -> (* permet a = b = c qui change b en c puis a en b *)
-        let jt_expr = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
-        let jt_acces = fst (jtype_of_acces dacces.loc env_typage env_vars true dacces.desc) in
+  (* Le <acces> = <expr> apparait aussi dans les instructions, donc je fais
+     une fonction auxiliaire pour ne pas l'écrire deux fois. *)
+  and acces_equal_expr env_typage env_vars (dacces : acces desc) (dexpr : expr desc) loc =
+    let (_,jo_expr,env_vars') = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+    let (nom_var, jo_acces, _ , env_vars'') = 
+      jtype_of_acces dacces.loc env_typage env_vars' true dacces.desc in
+    (* J'ai fait env_vars -> env_vars' via l'expr -> env_vars'' via l'accès
+       Mais je n'ai pas vérifié le comportement de java, peut-être que
+       pour gérer l'accès on n'a pas les infos d'initialisation hérité de l'expr *)
+    (* C'est l'occasion d'initialiser la variable si ce n'est déjà fait ! *)
+    let env_vars''' = begin match nom_var with
+    | Nom id_var -> 
+        let info_var = IdMap.find id_var env_vars'' in
+        IdMap.add id_var {jt = info_var.jt ; init = true} env_vars''
+        (* On écrase l'ancienne *)
+    | _ -> raise (Typing_error {loc = dacces.loc ;
+        msg = "On ne peut pas modifier des valeurs, il faut nommer les variables !"})
+    end
+    (* === *)
+    begin match jo_expr,jo_acces with
+    | None,None -> ()
+    | Some jt_expr,Some jt_acces ->
         if not (sous_type jt_expr jt_acces env_typage)
-        then raise (Typing_error {loc=loc_expr ;
+        then raise (Typing_error {loc=loc ;
           msg = "Pour changer une valeur, il faut un sous-type de ce qui est demandé "
               ^ (str_of_jtp jt_expr) ^ " n'est pas un sous-type de "
-              ^ (str_of_jtp jt_acces)}) ;
-        jt_acces
+              ^ (str_of_jtp jt_acces)})
+    | _,_ -> raise (Typing_error {loc=loc ;
+          msg = "Pour changer une valeur, il faut un sous-type de ce qui est demandé "
+              ^ (str_of_jo jo_expr) ^ " n'est pas un sous-type de "
+              ^ (str_of_jo jo_acces)})
+    end
+    (nom_var,jo_acces,env_vars''')
+
+  (* Pour toutes les expressions *)
+  and jtype_of_expr loc_expr env_typage env_vars = function
+    | Enull -> (Muet,Some Jtypenull,env_vars)
+    | Esimple dexpr_s -> jtype_of_expr dexpr_s.loc env_typage env_vars dexpr_s.desc
+    | Eequal (dacces,dexpr) -> (* permet a = b = c qui change b en c puis a en b *)
+        acces_equal_expr env_typage env_vars dacces dexpr loc_expr
     | Eunop (unop,dexpr) -> 
-        let jt_expr = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
-        begin match unop with
+        let (_,jo_expr,env_vars') = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+        (* Si c'est bien un Jint ou un Jboolean, on passe forcément en Muet *)
+        (Muet , begin match unop with
           | Unot -> 
-              if jt_expr <> Jboolean 
+              if jo_expr <> (Some Jboolean) 
               then raise (Typing_error {loc=dexpr.loc ;
                 msg = "Le not s'applique sur un boolean"}) ;
-              Jboolean
+              Some Jboolean
           | Uneg ->
-              if jt_expr <> Jint 
+              if jo_expr <> (Some Jint) 
               then raise (Typing_error {loc=dexpr.loc ;
                 msg = "Le moins unaire s'applique sur un entier"}) ;
-              Jint
-        end
+              Some Jint
+        end , env_vars' )
     | Ebinop (dexpr1,binop,dexpr2) ->
-        let jt_expr1 = jtype_of_expr dexpr1.loc env_typage env_vars dexpr1.desc in
-        let jt_expr2 = jtype_of_expr dexpr2.loc env_typage env_vars dexpr2.desc in
-        begin match jt_expr1,binop,jt_expr2 with
+        let (_,jo_expr1,env_vars') = jtype_of_expr dexpr1.loc env_typage env_vars dexpr1.desc in
+        let (_,jo_expr2,env_vars'') = jtype_of_expr dexpr2.loc env_typage env_vars' dexpr2.desc in
+        (* idem on peut passer en Muet *)
+        (* j'ai fait env_vars -> env_vars' via l'expr 1 -> env_vars'' via l'expr2
+           pour suivre l'idée d'évaluation paresseuse, mais je n'ai pas vérifier
+           Il est fort probable qu'il faille faire env_vars -> env_vars1 et env_vars2
+           pour ensuite les fusionner. *)
+        begin match jo_expr1,jo_expr2 with
+        | Some jt_expr1,Some jt_expr2 ->
+          ( Muet, Some begin match jt_expr1,binop,jt_expr2 with
           | Jint,Badd,Jint | Jint,Bsub,Jint | Jint,Bmul,Jint
           | Jint,Bdiv,Jint | Jint,Bmod,Jint -> Jint
           | Jint,Blt,Jint | Jint,Ble,Jint
@@ -1076,26 +1165,30 @@ let type_fichier l_ci =
             (* Ce message d'erreur est terrible...
                On pourrait demander un binop desc pour commencer.
                Dans tous les cas il faudra être plus fin pour produire l'arbre de sortie *)
-        end         
+          end , env_vars'' )
+        | _,_ -> raise (Typing_error {loc = loc_expr ;
+            msg = "Les opérations ne s'appliquent pas avec des expressions de type void"})
+        end
 
 
   (* === LES EXPRESSIONS SIMPLES === *)
   and jtype_of_expr_s loc_expr_s env_typage env_vars = function
-    | ESint n -> Jint
-    | ESstr s -> Jntype {loc = loc_dum ; desc=Ntype("String",[])}
+    | ESint n -> Muet,Some Jint,env_vars
+    | ESstr s -> Muet,Some (Jntype {loc = loc_dum ; desc=Ntype("String",[])}),env_vars
         (* Il faut absoluement que je fasse un Jstring, ça sera tellement plus simple *)
-    | ESbool b -> Jboolean
+    | ESbool b -> Muet,Some Jboolean,env_vars
     | ESthis ->
-        if not Hashtbl.mem env_vars "this"
-        then raise (Typing_error {loc = loc_expr_s ;
+      begin match (IdMap.find_opt "this" env_vars) with
+      | None -> raise (Typing_error {loc = loc_expr_s ;
           msg = "Aucun this actuellement, probablement parce que dans Main"})
-        else Hashtbl.find env_vars "this"
+      | Some (jt,_) -> (Nom "this",Some jt,env_vars)
+      end
     | ESexpr dexpr -> jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc 
     | ESnew (dn,params_dexpr) ->
         verifie_bf (Jntype dn) env_typage ;
         let Ntype(id_c,l_ntypes) = dn.desc in
         if id_c = "Object"
-        then begin if l_ntypes = [] then Jntype dn
+        then begin if l_ntypes = [] then (New , Some (Jntype dn),env_vars)
             else raise (Typing_error {loc = dn.loc ;
               msg = "Le constructeur Object() n'attend pas de paramètre"}) end
         else begin match Hashtbl.find_opt c_constr id_c with
@@ -1103,75 +1196,183 @@ let type_fichier l_ci =
               msg = id_c ^ " ne possède pas de constructeur, est-ce bien une classe \
                 et non interface ou un paramtype par exemple" })
           | Some params_dn ->
+              let env_vars' = ref env_vars in
               try List.iter2 
                 (fun (dn : param desc) (dexpr : expr desc) ->
-                  let jt_expr = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
-                  verifie_sous_type jt_expr dexpr.loc dn.desc.typ.desc )
+                  let (_,jo_expr,env_vars'') = 
+                    jtype_of_expr dexpr.loc env_typage !env_vars' dexpr.desc in
+                  let jt_expr = begin match jo_expr with
+                  | None -> raise (Typing_error {loc = dexpr.loc ;
+                      msg = "Cette expression est de type void, ce qui n'est jamais un \
+                            paramètre recevable !"})
+                  | Some jt -> jt end in
+                  verifie_sous_type jt_expr dexpr.loc dn.desc.typ.desc ;
+                  env_vars' := env_vars '')
                 params_dn params_dexpr ;
-                Jntype dn
+                (New , Some (Jntype dn) , !env_vars')
               with | Invalid_argument -> raise (Typing_error {loc = loc_expr_s ;
                 msg = "Le constructeur de " ^ id_c 
                     ^ " est appelé sur trop ou pas assez de paramètres"})
         end
 
-    | ESacces_meth dacces l_dexpr -> 
-        let jt_acces,types_params = 
+    | ESacces_meth dacces l_dexpr ->
+        let nom_var,jo_acces,types_params,env_vars' = 
           jtype_of_acces dacces.loc env_typage env_vars false dacces.desc in
-        begin
+        begin match nom_var with
+        | Muet | Now -> ()
+        | Nom id -> 
+          let {init} = IdMap.find id env_vars in
+          if not init 
+          then raise (Typing_error {loc = loc_expr_s ;
+            msg = id ^ " n'est peut-être pas initialisée, il faut qu'elle soit plus \
+                  clairement initialisée." })
+        end
+        let env_vars' = ref env_vars' in
         try List.iter2
-          (fun (jd_demande : jtype desc) (dexpr_donnee : expr desc) ->
-            let jt_expr = jtype_of_expr dexpr_donnee.loc env_typage env_vars dexpr_donnee.desc in
-            verifie_sous_type jt_expr dexpr_donnee.loc jd_demande.desc env_typage)
+          (fun (dj_demande : jtype desc) (dexpr_donnee : expr desc) ->
+            let (_,jo_expr,env_vars'') = 
+              jtype_of_expr dexpr_donnee.loc env_typage !env_vars' dexpr_donnee.desc in
+            let jt_expr = begin match jo_expr with
+            | None -> raise (Typing_error {loc = dexpr_donnee.loc ;
+              msg = "Cette expression est de type void, ce qui n'est jamais un \
+                    paramètre recevable !"})
+            | Some jt -> jt end in
+            verifie_sous_type jt_expr dexpr_donnee.loc dj_demande.desc env_typage ;
+            env_vars' := env_vars'')
           types_params l_dexpr
         with | Invalid_argument _ -> raise (Typing_error {loc = loc_expr_s ;
-            msg = "La méthode n'est pas appliqué avec le bon nombre de paramètre"})
+            msg = "La méthode n'est pas appliquée avec le bon nombre de paramètres"})
         end
-        jt_acces
+        (nom_var,jo_acces,!env_vars')
     | ESacces_var dacces ->
-        fst (jtype_of_acces dacces.loc env_typage env_vars true dacces.desc)
+        let nom_var,jo_acces,[],env_vars' = 
+          jtype_of_acces dacces.loc env_typage env_vars true dacces.desc in
+        begin match nom_var with
+        | Muet | Now -> ()
+        | Nom id -> 
+          let {init} = IdMap.find id env_vars in
+          if not init 
+          then raise (Typing_error {loc = loc_expr_s ;
+            msg = id ^ " n'est peut-être pas initialisée, il faut qu'elle soit plus \
+                  clairement initialisée." })
+        end
+        (nom_var,jo_acces,env_vars')
   in
 
+
   (* === LES INSTRUCTIONS === *)
-  let verifie_blocs_instrs (type_r : jtype desc option) loc_bloc 
+  let rec verifie_blocs_instrs (type_r : jtype desc option) loc_bloc 
         env_typage env_vars (instrs : instr desc list) = match instrs with
-    | [] -> 
-        begin match type_r with
-        | None -> ()
-        | Some dj -> raise (Typing_error {loc = loc_bloc ;
-            msg = "Il manque un return à ces instructions, on attend "
-                    ^ (str_to_jtp_opt type_r) })
-        end
-    | dinstr :: q -> begin match dinstr.desc with
-        | Ireturn dexpr_opt ->
-            let djo = match dexpr_opt with 
-              | None -> None
-              | Some dexpr ->
-                  let jtype = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
-                  Some {loc = dexpr.loc ; desc = jtype}
-            in
-            (* à cause de jtype desc option, qui est naze, il faudrait jtype option desc *)
-            verifie_sous_type_opt djo type_retour env_typage
-            (* Il faudrait VRAIMENT rattraper l'erreur, et préciser que c'est 
-               pour faire office de type de retour *)
-        | _ -> begin match dinstr.desc with
-          | Ireturn _ -> failwith "déjà traité, ce cas n'arrive jamais"
-          | Inil -> ()
-          | Isimple dexpr_s -> 
-              ignore (jtype_of_expr_s dexpr_s.loc env_typage env_vars dexpr_s.desc)
-              (* Attention, ici on autorise ce genre de chose pour simplifier la
-                 grammaire, mais en java c'est interdit, donc on ignore le retour *)
-          | Idef (dacc,dexpr) ->
-              let jt_acc = fst(jtype_of_acc dacc.loc env_typage env_vars true dacc.desc) in
-              let jt_expr = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
-              verifie_sous_type jt_expr dexpr.loc jt_acc env_typage
-          | Iinit (dj,i) ->
-
-
-          end
-          verifie_blocs_instrs type_r loc_bloc env_typage env_vars q 
-          (* J'ai séparé Ireturn du reste (en rajoutant un match) pour écrire
-             une seule fois verifie_bloc.... q. *)
+    | [] -> (* Si on attendait un return, on en a pas trouvé... *)
+      begin match type_r with
+      | None -> ()
+      | Some dj -> raise (Typing_error {loc = loc_bloc ;
+        msg = "Il manque un return à ces instructions, on attend " ^ (str_to_jtp_opt type_r) })
       end
+      env_vars 
+      (* On renvoie l'env_vars, utile pour récupérer les initialisations
+         de variables au sein de sous bloc d'instructions *)
+
+    | dinstr :: q -> 
+      begin match dinstr.desc with
+      | Ireturn dexpr_opt ->
+        let djo,env_vars' = match dexpr_opt with 
+          | None -> None,env_vars
+          | Some dexpr ->
+            let (_,jo_expr,env_vars') = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+            begin match jo_expr with
+            | None -> None
+            | Some jt -> Some {loc = dexpr.loc ; desc = jtype}
+            end (* foutu jtype desc option *) , env_vars'
+        in
+        verifie_sous_type_opt djo type_retour env_typage ;
+        (* Il faudrait VRAIMENT rattraper l'erreur, et préciser que c'est 
+           pour faire office de type de retour *)
+        env_vars'
+      
+      | Inil -> verifie_blocs_instrs type_r loc_bloc env_typage env_vars q 
+          (* Au début j'ai voulu séparer Ireturn du reste, pour n'écrire 
+             << verifie_blocs_instrs type_r loc_bloc env_typage env_vars q >>
+             qu'une fois, mais parfois l'env_typage change ! 
+             J'aurais pu faire renvoyer env_typage' au matching*)
+
+      | Isimple dexpr_s -> 
+        let (_,_,env_vars') = jtype_of_expr_s dexpr_s.loc env_typage env_vars dexpr_s.desc in
+        (* Attention, ici on autorise ce genre de chose pour simplifier la
+           grammaire, mais en java c'est interdit, d'ailleurs on ignore le retour
+           excepté la modification de l'env_envars *)
+        verifie_blocs_instrs type_r loc_bloc env_typage env_vars' q 
+
+      | Iequal (dacc,dexpr) ->
+        let (_,_,env_typage') = acces_equal_expr env_typage env_vars dacces dexpr dinstr.loc in
+        verifie_blocs_instrs type_r loc_bloc env_typage env_vars' q
+      
+      | Idef (dj,id) ->
+        begin match IdMap.find_opt id env_vars with
+        | Some _ -> raise (Typing_error {loc = dinstr.loc ;
+          msg = "Il est interdit de redéfinir une variable"})
+        | None ->
+          let env_vars' = IdMap.add id {jt = dj.desc ; init = false} env_vars
+          verifie_blocs_instrs type_r loc_bloc env_typage env_vars' q
+        end
+
+      | Idef_init (dj,id,dexpr) ->
+        let (_,jo_expr,env_vars') = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+        begin match jo_expr with
+        | None -> raise (Typing_error {loc = dexpr.loc ;
+          msg = "Problème pour initialiser " ^ id ^ "on attendait une valeur de type " 
+              ^ (str_of_dj dj.desc) ^ " et on a reçu un type Void" })
+        | Some jt_expr -> verifie_sous_type jt_expr dexpr.loc dj.desc env_typage
+        end
+        begin match IdMap.find_opt id env_vars' with
+        | Some _ -> raise (Typing_error {loc = dinstr.loc ;
+          msg = "Il est interdit de redéfinir une variable"})
+        | None ->
+          let env_vars' = IdMap.add id {jt = dj.desc ; init = true} env_vars'
+          verifie_blocs_instrs type_r loc_bloc env_typage env_vars' q
+        end
+        (* On pourrait faire une fonction auxiliaire pour éviter de se répéter *)
+
+      | Iif(dexpr,dinstr1,dinstr2) ->
+        let (_,jo_expr,env_vars') = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+        (* J'ai mis les cas particulier avec true ou false, et de la vérification paresseuse *)
+        if jo_expr <> Some Jboolean 
+        then raise (Typing_error {loc = dexpr.loc ;
+          msg = "La condition d'un if doit être un booléen !" }) ;
+        let env_vars'' = begin match dexpr.desc with
+        | Esimple {desc = ESbool true} ->
+          let env_vars1 = verifie_blocs_instrs None dinstr1.loc env_typage env_vars' [dinstr1] in
+          IdMap.mapi (fun id _ -> IdMap.find id env_vars1) env_vars'
+        | Esimple {desc = ESbool false} ->
+          let env_vars2 = verifie_blocs_instrs None dinstr2.loc env_typage env_vars' [dinstr2] in
+          IdMap.mapi (fun id _ -> IdMap.find id env_vars2) env_vars'
+        | _ ->
+          let env_vars1 = verifie_blocs_instrs None dinstr1.loc env_typage env_vars' [dinstr1] in
+          let env_vars2 = verifie_blocs_instrs None dinstr2.loc env_typage env_vars' [dinstr2] in
+          IdMap.mapi 
+            (fun id _ ->
+              let info1 = IdMap.find id env_vars1 in
+              let info2 = IdMap.find id env_vars2 in
+              {jt = info1.jt ; init = (info1 && info2)})
+            env_vars'
+        in
+        verifie_blocs_instrs type_r loc_bloc env_typage env_vars'' q
+
+      | Iwhile(dexpr,dinstr') ->
+        let (_,jo_expr,env_vars') = jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+        if jo_expr <> Some Jboolean 
+        then raise (Typing_error {loc = dexpr.loc ;
+          msg = "La condition d'un while doit être un booléen !" }) ;
+        (* On ne peut pas faire confiance au while pour initialiser des variables, donc
+           on ne fait rien du nouvel env_vars *)
+        ignore (verifie_blocs_instrs None dinstr'.loc env_typage env_vars' [dinstr'])
+        env_vars'
+
+      | Ibloc(l_dinstrs) ->
+        let env_vars' = verifie_blocs_instrs None dinstr.loc env_typage env_vars l_dinstrs in
+        (* Le type de retour d'un sous bloc doit bien être Void ? et non type_r *)
+        verifie_blocs_instrs type_r loc_bloc env_typage env_vars' q
+      end 
   in
   
   (* === Fonctions principales === *)
@@ -1196,7 +1397,7 @@ let type_fichier l_ci =
           List.iter 
             (fun (dp : param desc) -> Hashtbl.add env_vars dp.desc.nom dp.desc.typ.desc)
             pro.params ;
-          verifie_bloc_instrs type_retour decl.loc env_typage env_vars meth.body 
+          ignore (verifie_bloc_instrs type_retour decl.loc env_typage env_vars meth.body)
       
       | Dconstr dconstr -> 
           (* On pourrait faire une fonction auxiliaire, puisqu'on copie le cas précédent *)
@@ -1206,7 +1407,7 @@ let type_fichier l_ci =
           List.iter 
             (fun (dp : param desc) -> Hashtbl.add env_vars dp.desc.nom dp.desc.typ.desc)
             constr.params ;
-          verifie_bloc_instrs None dconst.loc env_typage env_vars constr.body 
+          ignore (verifie_bloc_instrs None dconst.loc env_typage env_vars constr.body)
     in
     List.iter verifie_decl body ;
   in
@@ -1216,6 +1417,6 @@ let type_fichier l_ci =
   (* Enfin, on traite Main *)
   let env_vars = Hashtbl.create 10 in
   let loc_main = Hashtbl.find env_typage_global.tab_loc "Main" in
-  verifie_bloc_instrs None loc_main env_typage_global env_vars !body_main ;
+  ignore (verifie_bloc_instrs None loc_main env_typage_global env_vars !body_main)
 in
 

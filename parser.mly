@@ -160,9 +160,9 @@ expr_simple:
 instruction:
 	| PVIRG 																					{ { loc=$startpos,$endpos ; desc = Inil } }
 	| es=expr_simple ; PVIRG													{ { loc=$startpos,$endpos ; desc = Isimple es } }
-	| a=acces ; EQUAL ; e=expr ; PVIRG 								{ { loc=$startpos,$endpos ; desc = Idef(a,e) } }
-	| t=typ ; id=IDENT ; PVIRG 												{ { loc=$startpos,$endpos ; desc = Iinit(t,id) } }
-	| t=typ ; id=IDENT ; EQUAL ; e=expr ; PVIRG				{ { loc=$startpos,$endpos ; desc = Iinit_def(t,id,e) } }
+	| a=acces ; EQUAL ; e=expr ; PVIRG 								{ { loc=$startpos,$endpos ; desc = Iequal(a,e) } }
+	| t=typ ; id=IDENT ; PVIRG 												{ { loc=$startpos,$endpos ; desc = Idef(t,id) } }
+	| t=typ ; id=IDENT ; EQUAL ; e=expr ; PVIRG				{ { loc=$startpos,$endpos ; desc = Idef_init(t,id,e) } }
 	| IF ; LPAR ; e=expr ; RPAR ; i1=instruction ; ELSE ; i2=instruction
 																										{ { loc=$startpos,$endpos ; desc = Iif(e,i1,i2) } }
 	| IF ; LPAR ; e=expr ; RPAR ; ins=instruction	%prec IF

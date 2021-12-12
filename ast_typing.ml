@@ -52,7 +52,11 @@ let str_of_jtp jtp = match jtp with
   |Jboolean -> "boolean"
   |Jntype ntd -> Ntype.to_str ntd
 
-let str_of_jtp_opt (typ : jtype desc option) = match typ with
+let str_of_jo = function
+  |None -> "Void"
+  |Some jt -> str_of_jtp jt
+
+let str_of_djo (typ : jtype desc option) = match typ with
   |None -> "Void"
   |Some jtp -> str_of_jtp jtp.desc
 (* ======================= *)
@@ -83,3 +87,12 @@ type info_paramtype_tmp = {
   tk_contraintes : ntype desc list
 }
 
+(* === Pour les env_var === *)
+module IdMap = Map.Make(String)
+type info_var = {jt : jtype ; init : bool } 
+type env_vars = info_var IdMap.t
+
+type nom_var =
+  | Muet
+  | New
+  | Nom of ident

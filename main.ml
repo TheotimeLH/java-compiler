@@ -29,13 +29,11 @@ let () =
     let ch = open_in !file in
     let lb = Lexing.from_channel ch in
     try
-        let _ = Parser.fichier Lexer.token lb in
+        let p = Parser.fichier Lexer.token lb in
         close_in ch ;
         if !parse_only then exit 0 ;
-        (*
-        let t = Typing.fichier p in
+        let _ = Typing.type_fichier p in
         if !type_only then exit 0 ;
-        *)
         exit 0
     with
         | Lexer.Non_fini { loc=pos ; msg=s } ->
@@ -50,14 +48,12 @@ let () =
           report (lexeme_start_p lb,lexeme_end_p lb) ;
           eprintf "erreur syntaxique: %s@." s ;
           exit 1
-          (*
         | Typing.Typing_error { loc=pos ; msg=s } ->
           report pos ;
           eprintf "erreur typage: %s@." s ;
           exit 1
-          *)
         | _ ->
           report (lexeme_start_p lb,lexeme_end_p lb) ;
           eprintf "erreur syntaxique: grammaire non reconnue@." ;
           exit 1
-        
+       

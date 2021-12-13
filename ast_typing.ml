@@ -45,6 +45,7 @@ end
 let jtype_equal jty1 jty2 = match jty1,jty2 with
   | Jtypenull,Jtypenull | Jint,Jint | Jboolean,Jboolean -> true
   | Jntype dn1,Jntype dn2 -> Ntype.equal dn1.desc dn2.desc 
+  | _,_ -> false
 
 let str_of_jtp jtp = match jtp with
   |Jtypenull -> "typenull"

@@ -1,5 +1,4 @@
 
-
 all: clean pjava
 
 tests: syntax typing

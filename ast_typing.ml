@@ -85,7 +85,9 @@ type env_typage = {
 type info_paramtype_tmp = {
   mutable tk_mark : mark ;
   tk_loc : localisation ;
-  tk_contraintes : ntype desc list
+  tk_contraintes : ntype desc list ;
+  mutable tk_pere : ident option ;
+  mutable tk_fils : ident list
 }
 
 (* === Pour les env_var === *)

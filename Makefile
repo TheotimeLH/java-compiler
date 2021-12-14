@@ -1,7 +1,7 @@
 
 all: clean pjava
 
-tests: syntax typing
+tests: syntax typing exec_good
 
 syntax: syntax_bad syntax_good
 
@@ -18,6 +18,9 @@ typing_bad:
 
 typing_good:
 	for f in tests/typing/good/*.java; do _build/default/main.exe --type-only $$f; done
+
+exec_good:
+	for f in tests/exec/*.java; do _build/default/main.exe $$f; done
 
 pjava:
 	dune build main.exe

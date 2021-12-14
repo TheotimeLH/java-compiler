@@ -1,7 +1,7 @@
 
-all: pjava
+all: clean pjava
 
-tests: pjava syntax typing
+tests: syntax typing
 
 syntax: syntax_bad syntax_good
 

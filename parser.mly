@@ -51,11 +51,12 @@
 
 fichier: c=class_intf+ ; EOF
 		{ let rec aux l = match l with
-				|[{desc=Main _}] -> l
+				|[{desc=Main _}] -> ()
 				|{desc=Main _}::_ -> raise (Parser_error "classe Main avant la fin")
 				|_::q -> aux q
 				|[] -> raise (Parser_error "aucune classe Main")
-			in aux c }
+      in aux c ;
+      c}
         
 class_intf:
 	| CLASS ; id=IDENT ; pt=paramstype ; ext=extends ; imp=implements ; LAC ; d=decl* ; RAC

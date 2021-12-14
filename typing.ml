@@ -44,6 +44,7 @@ let type_fichier l_ci =
     List.map (fun (p : paramtype desc) -> (p.desc).nom) params 
   in 
   
+  (* = Initialisation de l'env_typage_global = *)
   let env_typage_global = {
     paramstype = IdSet.empty ; 
     ci = IdSet.empty ;
@@ -76,6 +77,22 @@ let type_fichier l_ci =
   let tabch_empty = Hashtbl.create 0 in
   Hashtbl.add env_typage_global.champs "String" tabch_empty ;
   Hashtbl.add env_typage_global.champs "Object" tabch_empty ;
+  Hashtbl.add ci_params "Object" [];
+
+  (* = Pour gérer les env_typage locaux = *)
+  let env_locaux = Hashtbl.create 5 in
+
+  let env_copy e =
+    {paramstype = e.paramstype ;
+    ci = e.ci ; c = e.c ; i = e.i ;
+    extends = Hashtbl.copy e.extends ;
+    implements = Hashtbl.copy e.implements ;
+    methodes = Hashtbl.copy e.methodes ;
+    champs = Hashtbl.copy e.champs ;
+    tab_loc = Hashtbl.copy e.tab_loc }
+  in
+  (* Remarque : Oui j'ai préféré les Hashtbl aux Map, car plus pratiques :/ *) 
+
 
 
   (* ===== GRAPHES DES RELATIONS ENTRE LES C / LES I ===== *)
@@ -121,7 +138,8 @@ let type_fichier l_ci =
       (* tjr traitée dernière *)
   in
   List.iter graph_add_node l_ci ;
-  
+ 
+
   (* === Ajout des relations === *)
   (* Remarque : dans les graphes on ne regarde pas les relations C implements I, 
      car on va traiter les I avant. *)
@@ -182,6 +200,157 @@ let type_fichier l_ci =
   let list_intf = ref [] in (* ident list *)
   Hashtbl.iter (fun i n -> parcours list_intf n) graph_i ;
   
+  
+  (* === Déclaration des paramstype === *)
+  (* Justification de ce qu'on va faire et pourquoi maintenant :
+     Très bientôt, pour faire quoique ce soit, on vérifiera que nos types sont bien fondés
+     or pour faire ceci il faut que les types soient déjà déclarés, y compris les
+     paramstype ! Vivant dans les différents env_typage locaux. On doit donc les déclarer
+     dès maintenant, en revanche les paramstype pouvant faire référence à n'importe quelles
+     vraies ci, il fallait bien déclarer les ci avant. 
+     On doit non seulement renseigner leurs noms dans les env_typage locaux, 
+     mais aussi leurs relations ! C'est le moment pour vérifier qu'il n'y a pas 
+     de cycle dans la déclaration des paramstype.
+
+     Attention, ici on ne peut pas vérifier que ces déclarations font sens, ie que
+     les types sont bien fondés (du genre C<U extends B,T extends A<U>> 
+     on ne peut pas vérifier que A<U> est bien bien fondé, puisque précisément on
+     doit déclarer tous les paramstype avant. *)
+
+
+  (* Que doit-on faire et comment :
+     Pour une ci X<T1,...,Tn> il faut vérfier que les contraintes (/les extends)
+     des Ti ne forment pas de cycle, puis on les traite dans un ordre topologique.
+     On vérifie que les theta_i sont connus, et que ce sont des interfaces pour i>1.
+     Si les conditions sont vérifiés, on rajoute les interfaces dans l'env_typage
+     fraichement créé ! On rajoute les contraintes via env_typage.extends et implements, 
+     mais aussi les méthodes nécessairement possédées par T, et évidemment on ajoute T 
+     dans env_typage.paramstype.
+     
+     REMARQUE sur le comportement de java, on peut avoir Tk extends Tk' 
+     MAIS dans ce cas Tk' doit être l'unique contrainte ! 
+
+     Remarque sur mes choix, les paramstypes sont propres à une classe/interface,
+     c'est une information qui nous sert localement pour vérifier les ci. Ainsi
+     se trouve dans env_typage.paramstype uniquement les paramstype de la ci
+     actuellement traitée. On génère un nouvel env_typage à chaque fois.
+     Ainsi on ne risque pas de mélanger les paramstype entre ci. Si A et C utilisent
+     des paramstype nommés "T", ils ne seront jamais mélangés. Les informations 
+     utiles pour le traitement du corps des classes sont gardées dans chaque env_typage,
+     qu'on peut récuperer via la table env_locaux. *)
+     
+  let declare_paramstype id_ci =
+    let env_typage = env_copy env_typage_global in
+    let dparams = Hashtbl.find ci_params id_ci in
+    let params_id = params_to_ids dparams in (* T1 , ... , Tn, juste les idents *)
+    env_typage.paramstype <- IdSet.of_list params_id ;
+    let info_tmp = Hashtbl.create (List.length dparams) in
+    (* (ident , info_paramtype_tmp) Hashtbl.t *)
+    List.iter 
+      (fun (p : paramtype desc) -> 
+        Hashtbl.add env_typage.tab_loc (p.desc).nom p.loc ;
+        Hashtbl.add info_tmp (p.desc).nom 
+        {tk_mark = NotVisited ; tk_loc = p.loc ; 
+         tk_contraintes = (p.desc).extds})
+      dparams ;
+    
+    let recup_tk' tk = function (* cf la remarque précédente sur le comportement de java *)
+      | [({desc = Ntype (tk',[])} : ntype desc)] 
+          when IdSet.mem tk' env_typage.paramstype -> Some tk' 
+      | _ -> None
+    in
+
+    let params_id_tri = ref [] in
+    let rec parcours (tk : ident) =
+      let info_tk = Hashtbl.find info_tmp tk in
+      if info_tk.tk_mark = NotVisited 
+      then begin 
+        info_tk.tk_mark <- InProgress ; 
+        (match (recup_tk' tk info_tk.tk_contraintes) with
+          | None -> ()
+          | Some tk' -> parcours tk' ) ;
+        info_tk.tk_mark <- Visited ;
+        params_id_tri := tk :: !params_id_tri end
+      else if info_tk.tk_mark = InProgress
+      then raise (Typing_error {loc = info_tk.tk_loc ;
+            msg = "Il y a un cycle dans les paramstype"})
+    in
+    
+    List.iter parcours params_id ;
+
+    (* FINALEMENT peu importe dans quels sens on vérifie les paramstype,
+       puisque soit cas 1 on a Tk extends Tk', auquel cas c'est ok.
+       Soit cas 2 Tk ne dépend pas de d'autres paramstype.
+       D'ailleurs dans le cas 2 quand on fait les vérications, si on tombe sur
+       un Tk' il faut planter.
+
+       ATTENTION, on peut appeler un paramtype par le nom d'une ci, 
+       même interface I<I> est autorisé. Dans ce cas on écrase la ci, 
+       ma méthode consisterai à supprimer les ci portant le nom de paramtype. 
+       FINALEMENT je ne vais pas le faire, parce que je manque du temps et
+       c'est compliqué, car si on a I<A extends C> et d'autre part une classe A
+       et une classe C extends A, il faut garder l'ancien. Mais du coup il y
+       a un gros mélange, on peut imaginer des cas tordus. Je chercherai 
+       peut-être un jour une meilleure façon de faire. 
+       
+       ATTENTION, retournement de situation ! 
+       Ici, dans la vérification des paramstype, on peut effectivement traiter les
+       paramtype dans un ordre quelconque. EN REVANCHE, pour les classes, 
+       on va récupérer les méthodes et les champs des paramtypes, et là on doit
+       absoluement les traiter dans un ordre topologique. 
+       Exemple : avec <X entends Y, Y extends A & I>
+       On doit commencer par Y, qui possède les champs de A, les méthodes de A et
+       les méthodes demandées par I. Ensuite on héritera tout pour X. 
+       -> C'est là toute l'importance de ci_params_tri 
+       rem : On ne peut pas réarranger ci_params, sinon les substitutions vont 
+       mal se passer !    *)
+    
+    (* = Sauvegarde d'un ordre topologique = *)
+    Hashtbl.add ci_params_tri id_ci !params_id_tri ;
+
+    (* = *)
+    let declare_relations_paramtype (tk : ident) = 
+      env_typage.ci <- IdSet.add tk env_typage.ci ;
+      env_typage.c <- IdSet.add tk env_typage.c ;
+      let {tk_contraintes} = Hashtbl.find info_tmp tk in
+      match recup_tk' tk tk_contraintes with (* Pour faire les relations *)
+        | Some tk' ->
+            let info_tk' = Hashtbl.find info_tmp tk' in
+            Hashtbl.add env_typage.extends tk 
+              [{loc = info_tk'.tk_loc ; desc = Ntype (tk',[])}] ;
+            Hashtbl.add env_typage.implements tk []
+        | None -> begin
+            match tk_contraintes with 
+            | [] ->  init_extends tk [dobj] ; init_implements tk []
+            | (dci : ntype desc) :: q ->
+                (* Je ne peux pas encore vérifier que les types évoqués sont bien typés,
+                   Je suis obligé de faire confiance !  *)
+                (* De même on supp que les contraintes suivantes sont effectivements des i *)
+                let Ntype (id_ci,_) = dci.desc in
+                if IdSet.mem id_ci env_typage.paramstype 
+                then raise (Typing_error {loc = dci.loc ;
+                  msg = "Si un paramtype (ici : " ^ tk ^ ") dépend d'un autre (ici : "
+                      ^ id_ci ^ " ce doit être l'unique contrainte pour " ^ tk ^ "."}) ;
+                if IdSet.mem id_ci env_typage.c
+                then (Hashtbl.add env_typage.extends tk [dci] ;
+                      Hashtbl.add env_typage.implements tk q)
+                else (
+                  Hashtbl.add env_typage.extends tk [dobj] ;
+                  Hashtbl.add env_typage.implements tk tk_contraintes) ;
+        end
+    in
+    List.iter declare_relations_paramtype params_id ;
+    (* params_id juste pour montrer qu'on n'a pas besoin d'utiliser params_id_tri ici *)
+
+    Hashtbl.add env_locaux id_ci env_typage 
+  in
+
+  List.iter declare_paramstype (List.tl !list_cl) ; (* On saute Object *)
+  List.iter declare_paramstype !list_intf ; 
+  (* ======================= *)
+
+
+
   
   (* ===== Sous-type / Extends / Implements Généralisées / Bien fondé ===== *)
   (* ATTENTION, là on utilise les relations, on ne les vérifie pas *)
@@ -402,7 +571,7 @@ let type_fichier l_ci =
     (djo2 : jtype desc option) env_typage = match djo1 , djo2 with
       | None , None -> () (* void et void *)
       | Some dj1 , Some dj2 ->
-          verifie_sous_type dj1.desc dj1.loc dj1.desc env_typage
+          verifie_sous_type dj1.desc dj1.loc dj2.desc env_typage
       | _ , _ -> raise (Typing_error {loc = loc1 ;
       msg = (str_of_djo djo1) ^ " n'est pas un sous-type de " ^ (str_of_djo djo2) })
   in
@@ -440,157 +609,32 @@ let type_fichier l_ci =
         end
   in
   (* ======================= *)
-  
+
+
 
   (* ===== DECLARATIONS ET VERIFICATION DES HÉRITAGES ===== *)
-
-  (* === Pour les env_typages locaux === *)
-  let env_locaux = Hashtbl.create 5 in
-
-  let env_copy e =
-    {paramstype = e.paramstype ;
-    ci = e.ci ; c = e.c ; i = e.i ;
-    extends = Hashtbl.copy e.extends ;
-    implements = Hashtbl.copy e.implements ;
-    methodes = Hashtbl.copy e.methodes ;
-    champs = Hashtbl.copy e.champs ;
-    tab_loc = Hashtbl.copy e.tab_loc }
-  in
-  (* Remarque : Oui j'ai préféré les Hashtbl aux Map, car plus pratiques :/ *) 
-  
+ 
   (* === Vérification des paramstype === *)
-  (* Pour une ci X<T1,...,Tn> il faut vérfier que les contraintes (/les extends)
-     des Ti ne forment pas de cycle, puis on les traite dans un ordre topologique.
-     On vérifie que les theta_i sont connus, et que ce sont des interfaces pour i>1.
-     Si les conditions sont vérifiés, on rajoute les interfaces dans l'env_typage.
-     On rajoute les contraintes via env_typage.extends et implements, mais aussi
-     les méthodes nécessairement possédées par T, et évidemment on ajoute T 
-     dans env_typage.paramstype.
-     
-     REMARQUE sur le comportement de java, on peut avoir Tk extends Tk' 
-     MAIS dans ce cas Tk' doit être l'unique contrainte ! 
-
-     Remarque sur mes choix, les paramstypes sont propres à une classe/interface,
-     c'est une information qui nous sert localement pour vérifier les ci. Ainsi
-     se trouve dans env_typage.paramstype uniquement les paramstype de la ci
-     actuellement traitée. On génère un nouvel env_typage à chaque fois.
-     Ainsi on ne risque pas de mélanger les paramstype entre ci. Si A et C utilisent
-     des paramstype nommés "T", ils ne seront jamais mélangés. Les informations 
-     utiles pour le traitement du corps des classes sont gardées dans chaque env_typage,
-     qu'on peut récuperer via la table env_locaux. *)
-     
-  let verifie_et_fait_paramstype (ci : ident) env_typage =
-    let dparams = Hashtbl.find ci_params ci in
-    let params_id = params_to_ids dparams in (* T1 , ... , Tn, juste les idents *)
-    env_typage.paramstype <- IdSet.of_list params_id ;
-    let info_tmp = Hashtbl.create (List.length dparams) in
-    (* (ident , info_paramtype_tmp) Hashtbl.t *)
-    List.iter 
-      (fun (p : paramtype desc) -> 
-        Hashtbl.add env_typage.tab_loc (p.desc).nom p.loc ;
-        Hashtbl.add info_tmp (p.desc).nom 
-        {tk_mark = NotVisited ; tk_loc = p.loc ; 
-         tk_contraintes = (p.desc).extds})
-      dparams ;
-    
-    let recup_tk' tk = function (* cf la remarque précédente sur le comportement de java *)
-      | [({desc = Ntype (tk',[])} : ntype desc)] 
-          when IdSet.mem tk' env_typage.paramstype -> Some tk' 
-      | _ -> None
-    in
-
-    let params_id_tri = ref [] in
-    let rec parcours (tk : ident) =
-      let info_tk = Hashtbl.find info_tmp tk in
-      if info_tk.tk_mark = NotVisited 
-      then begin 
-        info_tk.tk_mark <- InProgress ; 
-        (match (recup_tk' tk info_tk.tk_contraintes) with
-          | None -> ()
-          | Some tk' -> parcours tk' ) ;
-        info_tk.tk_mark <- Visited ;
-        params_id_tri := tk :: !params_id_tri end
-      else if info_tk.tk_mark = InProgress
-      then raise (Typing_error {loc = info_tk.tk_loc ;
-            msg = "Il y a un cycle dans les paramstype"})
-    in
-    
-    List.iter parcours params_id ;
-
-    (* FINALEMENT peu importe dans quels sens on vérifie les paramstype,
-       puisque soit cas 1 on a Tk extends Tk', auquel cas c'est ok.
-       Soit cas 2 Tk ne dépend pas de d'autres paramstype.
-
-       D'ailleurs dans le cas 2 quand on fait les vérications, si on tombe sur
-       un Tk' il faut planter. Malheureusement ici je le fais planter sur un 
-       "Tk' est inconnu", ce serait beaucoup mieux de dire "Tk' est un paramtype 
-       donc doit être l'unique contrainte, ce qui n'est pas le cas ici".
-       Actuellement ma solution est de ne pas mettre les T dans l'env 
-       et les rajouter seulement après les vérifications.
-
-       ATTENTION, on peut appeler un paramtype par le nom d'une ci, 
-       même interface I<I> est autorisé. Dans ce cas on écrase la ci, avec 
-       ma méthode consiste à supprimer les ci portant le nom de paramtype. 
-       FINALEMENT je ne vais pas le faire, parce que je manque du temps et
-       c'est compliqué, car si on a I<A extends C> et d'autre part une classe A
-       et une classe C extends A, il faut garder l'ancien. Mais du coup il y
-       a un gros mélange, on peut imaginer des cas tordus. Je cherchais 
-       peut-être un jour une meilleure façon de faire. 
-       
-       ATTENTION, retournement de situation ! 
-       Ici, dans la vérification des paramstype, on peut effectivement traiter les
-       paramtype dans un ordre quelconque. EN REVANCHE, pour les classes, 
-       on va récupérer les méthodes et les champs des paramtypes, et là on doit
-       absoluement les traiter dans un ordre topologique. 
-       Exemple : avec <X entends Y, Y extends A & I>
-       On doit commencer par Y, qui possède les champs de A, les méthodes de A et
-       les méthodes demandées par I. Ensuite on héritera tout pour X. 
-       -> C'est là toute l'importance de ci_params_tri 
-       rem : On ne peut pas réarranger ci_params, sinon les substitutions vont 
-       mal se passer !    *)
-    
-    (* = Sauvegarde d'un ordre topologique = *)
-    Hashtbl.add ci_params_tri ci !params_id_tri ;
-
-    let verifie_paramtype (tk : ident) = 
-      let {tk_contraintes} = Hashtbl.find info_tmp tk in
-      match recup_tk' tk tk_contraintes with (* Pour faire les relations *)
-        | Some tk' ->
-            let info_tk' = Hashtbl.find info_tmp tk' in
-            Hashtbl.add env_typage.extends tk 
-              [{loc = info_tk'.tk_loc ; desc = Ntype (tk',[])}] ;
-            Hashtbl.add env_typage.implements tk []
-        | None -> begin
-            match tk_contraintes with 
-            | [] ->  init_extends tk [dobj] ; init_implements tk []
-            | (dci : ntype desc) :: q ->
-                verifie_bf (Jntype dci) env_typage ;
-                let Ntype (id_ci,l_ntypes_ci) = dci.desc in
-                if IdSet.mem id_ci env_typage.c
-                then (Hashtbl.add env_typage.extends tk [dci] ;
-                      Hashtbl.add env_typage.implements tk q)
-                else (
-                  Hashtbl.add env_typage.extends tk [dobj] ;
-                  Hashtbl.add env_typage.implements tk tk_contraintes) ;
-
-                List.iter (* On vérifie que les contraintes suivantes st des interfaces *)
-                  (fun (dn : ntype desc) -> 
-                    verifie_bf (Jntype dn) env_typage ;
-                    let Ntype (id',l_ntypes') = dn.desc in
-                    if not (IdSet.mem id' env_typage.i)
-                    then raise (Typing_error {loc = dn.loc ;
-                        msg = "On attend des interfaces en contraintes supplémentaires"})
-                  ) q ;
-                let h = Hashtbl.find env_typage.implements tk in
-                Hashtbl.replace env_typage.implements tk (h @ q)
-        end
-    in
-    List.iter verifie_paramtype params_id ; 
-    (* params_id juste pour montrer qu'on n'a pas d'utiliser params_id_tri ici *)
-
-    List.iter (fun tk ->
-      env_typage.ci <- IdSet.add tk env_typage.ci ;
-      env_typage.c <- IdSet.add tk env_typage.c ) params_id 
+  (* Pour rappel, les paramstype ont déjà été déclarer en amont des fonctions
+     verifie_bf/extds/implmts etc. Il nous reste juste à vérifier que les
+     types mentionnés sont bien fondés. *)   
+  let verifie_paramstype id_ci env_typage =
+    let dparams = Hashtbl.find ci_params id_ci in
+    List.iter
+      (fun (p : paramtype desc) ->
+        match p.desc.extds with
+        | [] -> ()
+        | (dci : ntype desc) :: q ->
+          verifie_bf (Jntype dci) env_typage ;
+          List.iter (* On vérifie que les contraintes suivantes st des interfaces *)
+            (fun (dn : ntype desc) -> 
+              verifie_bf (Jntype dn) env_typage ;
+              let Ntype (id',l_ntypes') = dn.desc in
+              if not (IdSet.mem id' env_typage.i)
+              then raise (Typing_error {loc = dn.loc ;
+                msg = "On attend des interfaces en contraintes supplémentaires"})
+            ) q 
+      ) dparams 
   in
   (* ======================= *)
 
@@ -766,11 +810,11 @@ let type_fichier l_ci =
       then raise (Typing_error {loc = di'.loc ;
         msg = "On attendait une interface et non une classe/paramtype"})
   in
-  let verifie_interface id_i=
-    let env_typage = env_copy env_typage_global in
+  let verifie_interface id_i =
+    let env_typage = Hashtbl.find env_locaux id_i in
 
     (* Première étape : les paramstype *)
-    verifie_et_fait_paramstype id_i env_typage ;
+    verifie_paramstype id_i env_typage ;
 
     (* Deuxième étape : les extends *)
     let extends = Hashtbl.find env_typage.extends id_i in
@@ -829,10 +873,10 @@ let type_fichier l_ci =
      exactement pour comme pour les interfaces précédemment. *)
 
   let verifie_classe id_c =
-    let env_typage = env_copy env_typage_global in
+    let env_typage = Hashtbl.find env_locaux id_c in
     let loc_c = Hashtbl.find env_typage.tab_loc id_c in
     (* Déclaration des paramstype *)
-    verifie_et_fait_paramstype id_c env_typage ;  
+    verifie_paramstype id_c env_typage ;  
 
     (* La sur-classe *)
     let d_mere = List.hd (Hashtbl.find env_typage.extends id_c) in
@@ -860,6 +904,8 @@ let type_fichier l_ci =
        et 2) pour pouvoir en rajouter facilement (d'où des Hashtbl et non des Map) *)
     (* Héritage *)
     heritage_d'une_surci id_c loc_c methodes env_typage d_mere ;
+    let id_nouvelles_meths = ref IdSet.empty in
+    (* Pour vérifier qu'on ne redéfinit pas deux fois une méthode au sein de la classe *)
     let Ntype (id_m,l_ntypes_m) = d_mere.desc in
     let sigma = fait_sigma id_m d_mere.loc l_ntypes_m in
     Hashtbl.iter
@@ -884,6 +930,11 @@ let type_fichier l_ci =
       | Dmeth dmeth ->
           let d_proto = dmeth.desc.info in 
           let pro = d_proto.desc in (* les deux desc sont redondants ! *)
+          if IdSet.mem pro.nom !id_nouvelles_meths
+          then raise (Typing_error {loc = d_proto.loc ;
+            msg = "Dans pjava il est interdit de définir deux fois une méthode \
+                   au sein d'une classe"})
+          else id_nouvelles_meths := IdSet.add pro.nom !id_nouvelles_meths ;
           verifie_et_fait_methode pro.typ pro.nom pro.params id_c
             d_proto.loc env_typage methodes ;
       
@@ -926,7 +977,7 @@ let type_fichier l_ci =
     in
     List.iter verification_implements implements ;
 
-    Hashtbl.add env_locaux id_c env_typage 
+    (* L'env_typage local a largement été complété, modifié par effet de bord *)
   in
   
   (* En premier *)
@@ -1221,6 +1272,32 @@ let type_fichier l_ci =
         end
 
     | ESacces_meth (dacces,l_dexpr) ->
+        (* C'est ici que je fais les cas particuliers System.out.print(<str>) et println *)
+        let env_vars_special = ref env_vars in
+        if begin match dacces.desc with
+        | Achemin (dexpr_s,"print") | Achemin (dexpr_s,"println") ->
+          begin match dexpr_s.desc with
+          | ESacces_var {desc = Achemin ({desc = ESacces_var {desc = Aident "System"}},"out")} ->
+            begin match l_dexpr with
+            | [dexpr] ->
+              let (_,jo_expr,env_vars') =
+                jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
+              env_vars_special := env_vars' ;
+              begin match jo_expr with
+              | Some (Jntype {desc=Ntype("String",[])}) -> true
+              | _ -> raise (Typing_error {loc = dexpr.loc ;
+                msg = "System.out.print et println attendent un String"})
+              end
+            | _ -> raise (Typing_error {loc = dacces.loc ;
+                msg = "System.out.print et println attendent un unique paramètre, un String"})
+            end
+          | _ -> false
+          end
+        | _ -> false end
+        then (Muet , None, !env_vars_special)
+        (* === *)
+        else begin 
+
         let nom_var,jo_acces,types_params,env_vars' = 
           jtype_of_acces dacces.loc env_typage env_vars false dacces.desc in
         begin match nom_var with
@@ -1250,6 +1327,7 @@ let type_fichier l_ci =
             msg = "La méthode n'est pas appliquée avec le bon nombre de paramètres"})
         end ;
         (nom_var,jo_acces,!env_vars')
+        end
     | ESacces_var dacces ->
         let nom_var,jo_acces,_,env_vars' = 
           jtype_of_acces dacces.loc env_typage env_vars true dacces.desc in
@@ -1418,9 +1496,15 @@ let type_fichier l_ci =
     in
     List.iter verifie_decl body ;
   in
-  
+ 
+  (*print_endline "=====================" ;
+  print_int (List.length l_ci) ;
+  print_newline () ;
+  IdSet.iter print_endline env_typage_global.c ;
+  print_endline "=====================" ; *)
+
   IdSet.iter verifie_corps_c 
-    (IdSet.diff env_typage_global.c (IdSet.of_list ["Object";"String"])) ;
+    (IdSet.diff env_typage_global.c (IdSet.of_list ["Object";"String";"Main"])) ;
 
   (* Enfin, on traite Main *)
   let env_vars = IdMap.empty in

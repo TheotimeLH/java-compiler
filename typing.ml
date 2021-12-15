@@ -72,7 +72,8 @@ let type_fichier l_ci =
   Hashtbl.add tabmeth_String "equals"
     {nom="equals" ; id_ci = "String" ;
      typ=Some {loc = loc_dum ; desc = Jboolean} ; 
-     types_params=[{loc = loc_dum ; desc = Jntype {loc = loc_dum ; desc = Ntype ("String",[])}}]} ;
+     types_params=[{loc = loc_dum ; desc = 
+       Jntype {loc = loc_dum ; desc = Ntype ("String",[])}}]} ;
   Hashtbl.add env_typage_global.methodes "String" tabmeth_String ;
   Hashtbl.add env_typage_global.methodes "Object" (Hashtbl.create 0) ;
   let tabch_empty = Hashtbl.create 0 in
@@ -107,6 +108,7 @@ let type_fichier l_ci =
 
   (* === Ajout des noeuds === *)
   let node_obj = {id="Object" ; mark = NotVisited ; prec=[] ; succ=[]} in
+  Hashtbl.add graph_c "Object" node_obj ;
 
   let graph_add_node ci = match ci.desc with
     | Class {nom ; params ; body} ->
@@ -475,11 +477,7 @@ let type_fichier l_ci =
         msg = "Classe ou interface inconnue dans le contexte"}) ;
 
     let l_precs1 = Hashtbl.find env_typage.extends id1 in
-    let sigma = 
-      if IdSet.mem id1 env_typage.paramstype
-      then Hashtbl.create 0 (* table de subsitution vide *)
-      else fait_sigma id1 dci1.loc l_ntypes1
-    in
+    let sigma = fait_sigma id1 dci1.loc l_ntypes1 in
     List.exists
       (fun dci -> extends dci dci2 env_typage)  
       (substi_list sigma l_precs1)
@@ -517,25 +515,18 @@ let type_fichier l_ci =
       then raise (Typing_error {loc = di.loc ;
         msg = "Interface inconnue dans le contexte"}) ;
 
-    let l_implems = Hashtbl.find env_typage.implements id_c in
-    let sigma = 
-      if IdSet.mem id_c env_typage.paramstype
-      then Hashtbl.create 0 (* table de subsitution vide *)
-      else fait_sigma id_c dc.loc l_ntypes_c
-    in
-    try
-      let di' = List.find 
-        (fun ({desc = Ntype(id_i',_)} : ntype desc) -> (id_i'=id_i))
-        l_implems in
-      let Ntype(id_i',l_ntypes_i') = di'.desc in
-      Ntype.equal di.desc (Ntype(id_i',substi_list sigma l_ntypes_i'))
-    with
-      | Not_found ->
-          let l_precs = Hashtbl.find env_typage.extends id_c in
-          List.exists
-            (fun dc' -> implements dc' di env_typage)
-            (substi_list sigma l_precs)
-            (* En soit il y a au plus une sur-classe *)
+    let sigma = fait_sigma id_c dc.loc l_ntypes_c in
+    ( let l_implements = Hashtbl.find env_typage.implements id_c in 
+      List.exists 
+      (fun (di' : ntype desc) -> 
+        extends di' di env_typage)
+      (substi_list sigma l_implements) )
+    ||
+    ( let l_extends = Hashtbl.find env_typage.extends id_c in
+      (* Même si en soit il y a au plus une sur-classe *)
+      List.exists
+      (fun dc' -> implements dc' di env_typage)
+      (substi_list sigma l_extends) )
   in
   let verifie_implements dc di env_typage = 
     if not (implements dc di env_typage)
@@ -558,19 +549,17 @@ let type_fichier l_ci =
           then raise (Typing_error {loc = dci.loc ;
             msg = "Classe ou interface inconnue dans le contexte"}) ;
         
-        let sigma = 
-          if IdSet.mem id_ci env_typage.paramstype
-          then Hashtbl.create 0 (* table de subsitution vide *)
-          else fait_sigma id_ci dci.loc l_ntypes_ci
-        in    
+        let sigma = fait_sigma id_ci dci.loc l_ntypes_ci in
         let l_precs = Hashtbl.find env_typage.extends id_ci in
         
         (List.exists (* Règle 4 des sous-types *)
           (fun dci' -> sous_type (Jntype dci') jtyp2 env_typage)
           (substi_list sigma l_precs)  )
-        || begin match jtyp2 with (* Potentiellement la règle 5 *)
-            | Jntype di ->
-                let Ntype (id_i,l_ntypes_i) = di.desc in
+        || begin match jtyp2 with 
+          (* Potentiellement la règle 5 :
+             ATTENTION, il me semble qu'elle est fausse (version 3 du sujet), cf mon rapport. *)
+            | Jntype di -> implements dci di env_typage 
+                (* let Ntype (id_i,l_ntypes_i) = di.desc in
                 if not (IdSet.mem id_i env_typage.ci)
                   then raise (Typing_error {loc = di.loc ;
                     msg = "Classe ou interface inconnue dans le contexte"}) ;
@@ -611,7 +600,7 @@ let type_fichier l_ci =
                     | Some di' -> 
                         let ntype' = substi sigma (di').desc in   
                         Ntype.equal di.desc ntype' 
-                end
+                end *)
             | _ -> false
           end
     | _,_ -> false
@@ -644,23 +633,19 @@ let type_fichier l_ci =
         (* id a des paramtypes, en particulier id n'est pas un paramtype *)
         let dparams = Hashtbl.find ci_params id_ci in
         let params_id = params_to_ids dparams in (* T1 , ... , Tn, juste les idents *)
+        (* d_mere vit dans env_typage_id_ci, exemple : A<T extends B & I,U extends T>
+           on cherche à vérifier que A<X,Y> est bien fondé, où X et Y vivent dans l'env_typage
+           actuel ! On doit vérifier que X extends B et implements I, ce qui est dit dans 
+           env_typage !, puis que Y extends X ! On substitue les informations de 
+           l'env_typage_id_ci avec ce qu'on sait actuellement ! *)
         let env_typage_id_ci = Hashtbl.find env_locaux id_ci in
+        let sigma = fait_sigma id_ci loc l_ntypes in
         try
           List.iter2
             (fun id_p dn ->
               verifie_bf (Jntype dn) env_typage ;
-              (* un paramtype hérite au plus d'une classe ou d'un autre paramtype,
-                 peut-être de Object 
-                 ATTENTION à ça si on veut passer à un amélioration où on 
-                 conserve extends généralisée *)
-              (* d_mere vit dans env_typage_id_ci, exemple : A<T extends B & I,U extends T>
-                 on cherche à vérifier que A<X,Y> est bien fondé, où X et Y vivent dans l'env_typage
-                 actuel ! On doit vérifier que X extends B et implements I, ce qui est dit dans 
-                 env_typage !, puis que Y extends X ! On substitue les informations de 
-                 l'env_typage_id_ci avec ce qu'on sait actuellement ! *)
-              let sigma = fait_sigma id_ci loc l_ntypes in
               let d_mere = List.hd (Hashtbl.find env_typage_id_ci.extends id_p) in
-              let d_mere = {loc = d_mere.loc ; desc = substi sigma d_mere.desc} in
+              let d_mere = {loc = d_mere.loc ; desc = substi sigma d_mere.desc} in (* cf rem *)
               let l_implements = Hashtbl.find env_typage_id_ci.implements id_p in
               let l_implements = substi_list sigma l_implements in
               verifie_extends dn d_mere env_typage ; (* verifie_sous_type fait l'affaire ? *)
@@ -782,7 +767,7 @@ let type_fichier l_ci =
                   ^ id_ci' ^ " avec le type de retour " ^ (str_of_djo meth'.typ)
                   ^ " mais aussi via " ^ meth''.id_ci ^ " avec le type de retour "
                   ^ (str_of_djo meth''.typ) 
-                  ^ " or ces types ne sont pas en relation, l'un doit extends l'autre."})
+                  ^ " or ces types ne sont pas en relations, l'un doit extends l'autre."})
             (* Au lieu de fournir juste loc_ci, ça serait cool de remonter l'arbre
                de extends en montrant d'où viennent les méthodes en conflits *)
             (* else on n'a pas à changer *)
@@ -997,13 +982,18 @@ let type_fichier l_ci =
     let verifie_decl (decl : decl desc) = match decl.desc with
       | Dchamp (dj,nom) ->
           let champ = {nom = nom ; id_c = id_c ; typ = dj} in
-          if Hashtbl.mem champs nom
-          then raise (Typing_error {loc = decl.loc ;
-            msg = id_c ^ " hérite déjà d'un champ " ^ nom 
-              ^ " il est interdit de rédéfinir un champ."})
-            (* l'erreur vaut aussi si on définit 2 fois un champ au sein d'une classe *)
-          else (verifie_bf dj.desc env_typage;
-            Hashtbl.add champs nom champ )
+          begin match (Hashtbl.find_opt champs nom) with
+          | None -> 
+            verifie_bf dj.desc env_typage;
+            Hashtbl.add champs nom champ
+          | Some ch ->
+            if ch.id_c = id_c then raise (Typing_error {loc = decl.loc ;
+              msg = nom ^ " est définit deux fois dans " ^ id_c ^ " c'est interdit."}) ;
+            if ch.typ.desc <> dj.desc then raise (Typing_error {loc = decl.loc ;
+              msg = id_c ^ " hérite déjà d'un champ " ^ nom 
+                ^ " il est interdit de rédéfinir un champ \
+                    (excepté en gardant exactement le même type)."})
+          end
 
       | Dmeth dmeth ->
           let d_proto = dmeth.desc.info in 
@@ -1075,7 +1065,6 @@ let type_fichier l_ci =
 
   (* ================================= *)
   (* ================================= *)
-
 
 
 
@@ -1172,9 +1161,10 @@ let type_fichier l_ci =
           | None -> raise (Typing_error {loc = loc_acc ;
               msg = id ^ " n'est pas une méthode de this."})
           | Some info_meth -> 
-            (Nom "this", 
-            (match info_meth.typ with None -> None | Some dj -> Some dj.desc)
-            , info_meth.types_params, env_vars)
+            let type_r = (match info_meth.typ with None -> None | Some dj -> Some dj.desc) in
+            let jt_params = List.map (fun (dj : jtype desc) -> dj.desc) info_meth.types_params in
+            (Nom "this", type_r , jt_params , env_vars)
+            (* ici pas besoin de substituer, car l'env_typage de this est l'env actuel *)
           end
 
         | _ -> raise (Typing_error {loc = loc_acc ;
@@ -1185,11 +1175,9 @@ let type_fichier l_ci =
     | Achemin (dexpr_s,id) ->
       begin match jtype_of_expr_s dexpr_s.loc env_typage env_vars dexpr_s.desc with
       (* ce qu'on nous donne est initialisé ! *)
-      | (Muet,_,_) -> raise (Typing_error {loc = dexpr_s.loc ;
-            msg = "Les objets primitifs n'ont pas de méthodes ou de champs" })
       | (nom_var, Some (Jntype dn),env_vars') ->
         let Ntype (id_ci,l_ntypes_ci) = dn.desc in
-        let sigma = fait_sigma id_ci loc_dum l_ntypes_ci in
+        let sigma = fait_sigma id_ci dn.loc l_ntypes_ci in
         (* On pourrait l'enregistrer dans env_vars... *)
         if b then
           if not (IdSet.mem id_ci env_typage.c)
@@ -1210,14 +1198,16 @@ let type_fichier l_ci =
           | None  -> raise (Typing_error {loc = loc_acc ;
               msg = id_ci ^ " ne possède pas de méthode " ^ id })
           | Some meth -> 
-            (*AHHHHH Il faut que j'arrête avec ces jtype desc option
-            déjà jtype option desc serait mieux, mais finalement je veux un Jvoid
-            comme un Jstring *)
-            (nom_var,
-            begin match (substi_djo sigma meth.typ) with
+            (*AHHHHH Il faut que j'arrête avec ces jtype desc option déjà jtype option desc
+            serait plus pratique, mais finalement je veux un Jvoid et un Jstring. *)
+            (* On utilise sigma, pour ramener cette méthode dans l'env_typage actuel *)
+            let type_r = begin match (substi_djo sigma meth.typ) with
             | None -> None
-            | Some dj -> Some dj.desc
-            end , meth.types_params , env_vars')
+            | Some dj -> Some dj.desc end in
+            let jt_params = 
+              List.map (fun (dj : jtype desc) -> (substi_dj sigma dj).desc)
+              meth.types_params in
+            (nom_var , type_r , jt_params , env_vars' )
           end end
       
       | (_,_,_) -> raise (Typing_error {loc = dexpr_s.loc ;
@@ -1331,6 +1321,28 @@ let type_fichier l_ci =
 
 
   (* === LES EXPRESSIONS SIMPLES === *)
+  (* Pour utiliser une méthode ou un constructeur, on doit vérifier que les
+     paramètres données conviennent, voilà la fonction auxiliaire qui s'en occupe.
+     Elle renvoie le nouvel env_vars, car on a pu initialiser des variables.  *)
+  and verifie_parametres_effectifs env_typage env_vars loc_appli jt_params 
+    (l_dexpr : expr desc list) = match jt_params , l_dexpr with
+    | [],[] -> env_vars
+    | [],_ -> raise (Typing_error {loc = loc_appli ;
+      msg = "La méthode (ou le constructeur) est appelée sur trop de paramètres"})
+    | _,[] -> raise (Typing_error {loc = loc_appli ;
+      msg = "La méthode (ou le constructeur) est appelée sur pas assez de paramètres"})
+    | jt_demande :: q_jtp , dexpr_donnee :: q_expr ->
+      let (_,jo_expr_donnee,env_vars') = 
+        jtype_of_expr dexpr_donnee.loc env_typage env_vars dexpr_donnee.desc in
+      begin match jo_expr_donnee with
+      | None -> raise (Typing_error {loc = dexpr_donnee.loc ;
+        msg = "Cette expression est de type void, ce qui n'est jamais un \
+               paramètre recevable pour une méthode (ou un constructeur) !"})
+      | Some jt_donnee -> verifie_sous_type jt_donnee dexpr_donnee.loc jt_demande env_typage
+      end ;
+      verifie_parametres_effectifs env_typage env_vars' loc_appli q_jtp q_expr
+
+  (* La fonction générale pour toutes les expressions simples : *)
   and jtype_of_expr_s loc_expr_s env_typage env_vars = function
     | ESint n -> Muet,Some Jint,env_vars
     | ESstr s -> Muet,Some (Jntype {loc = loc_dum ; desc=Ntype("String",[])}),env_vars
@@ -1343,7 +1355,7 @@ let type_fichier l_ci =
       | Some {jt} -> (Nom "this",Some jt,env_vars)
       end
     | ESexpr dexpr -> jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc 
-    | ESnew (dn,params_dexpr) ->
+    | ESnew (dn,l_dexpr) ->
         verifie_bf (Jntype dn) env_typage ;
         let Ntype(id_c,l_ntypes) = dn.desc in
         if id_c = "Object"
@@ -1354,24 +1366,14 @@ let type_fichier l_ci =
           | None -> raise (Typing_error {loc = dn.loc ;
               msg = id_c ^ " ne possède pas de constructeur, est-ce bien une classe \
                 et non interface ou un paramtype par exemple" })
-          | Some params_dn ->
-              let env_vars' = ref env_vars in
-              try List.iter2 
-                (fun (dn : param desc) (dexpr : expr desc) ->
-                  let (_,jo_expr,env_vars'') = 
-                    jtype_of_expr dexpr.loc env_typage !env_vars' dexpr.desc in
-                  let jt_expr = begin match jo_expr with
-                  | None -> raise (Typing_error {loc = dexpr.loc ;
-                      msg = "Cette expression est de type void, ce qui n'est jamais un \
-                            paramètre recevable !"})
-                  | Some jt -> jt end in
-                  verifie_sous_type jt_expr dexpr.loc dn.desc.typ.desc env_typage ;
-                  env_vars' := env_vars'' )
-                params_dn params_dexpr ;
-                (New , Some (Jntype dn) , !env_vars')
-              with | Invalid_argument _ -> raise (Typing_error {loc = loc_expr_s ;
-                msg = "Le constructeur de " ^ id_c 
-                    ^ " est appelé sur trop ou pas assez de paramètres"})
+          | Some params_constr ->
+              let sigma = fait_sigma id_c dn.loc l_ntypes in
+              let jt_params = 
+                List.map (fun (dp : param desc) -> (substi_jt sigma dp.desc.typ.desc)) 
+                params_constr in
+              let env_vars' = 
+                verifie_parametres_effectifs env_typage env_vars loc_expr_s jt_params l_dexpr in
+              (New , Some (Jntype dn) , env_vars')
         end
 
     | ESacces_meth (dacces,l_dexpr) ->
@@ -1392,7 +1394,7 @@ let type_fichier l_ci =
                 msg = "System.out.print et println attendent un String"})
               end
             | _ -> raise (Typing_error {loc = dacces.loc ;
-                msg = "System.out.print et println attendent un unique paramètre, un String"})
+                msg = "System.out.print et println attendent un unique paramètre (un String)"})
             end
           | _ -> false
           end
@@ -1401,36 +1403,22 @@ let type_fichier l_ci =
         (* === Fin de System.out.print === *)
         else begin 
 
-        let nom_var,jo_acces,types_params,env_vars' = 
+        let nom_var,jo_acces,jt_params,env_vars' = 
           jtype_of_acces dacces.loc env_typage env_vars false dacces.desc in
         begin match nom_var with
         | Muet | New -> ()
         | Nom id -> 
           let {init} = IdMap.find id env_vars in
-          if not init 
-          then raise (Typing_error {loc = loc_expr_s ;
+          if not init then raise (Typing_error {loc = loc_expr_s ;
             msg = id ^ " n'est peut-être pas initialisée, il faut qu'elle soit plus \
                   clairement initialisée." })
         end ;
-        let env_vars' = ref env_vars' in
-        begin
-        try List.iter2
-          (fun (dj_demande : jtype desc) (dexpr_donnee : expr desc) ->
-            let (_,jo_expr,env_vars'') = 
-              jtype_of_expr dexpr_donnee.loc env_typage !env_vars' dexpr_donnee.desc in
-            let jt_expr = begin match jo_expr with
-            | None -> raise (Typing_error {loc = dexpr_donnee.loc ;
-              msg = "Cette expression est de type void, ce qui n'est jamais un \
-                    paramètre recevable !"})
-            | Some jt -> jt end in
-            verifie_sous_type jt_expr dexpr_donnee.loc dj_demande.desc env_typage ;
-            env_vars' := env_vars'')
-          types_params l_dexpr
-        with | Invalid_argument _ -> raise (Typing_error {loc = loc_expr_s ;
-            msg = "La méthode n'est pas appliquée avec le bon nombre de paramètres"})
-        end ;
-        (nom_var,jo_acces,!env_vars')
+        
+        let env_vars'' = 
+          verifie_parametres_effectifs env_typage env_vars' loc_expr_s jt_params l_dexpr in
+        (nom_var,jo_acces,env_vars'')
         end
+
     | ESacces_var dacces ->
         let nom_var,jo_acces,_,env_vars' = 
           jtype_of_acces dacces.loc env_typage env_vars true dacces.desc in
@@ -1459,9 +1447,10 @@ let type_fichier l_ci =
 
   let rec verifie_bloc_instrs (type_r : jtype desc option) loc_bloc 
         env_typage env_vars (instrs : instr desc list) = match instrs with
-    | [] -> (* Si on attendait un return, on en a pas trouvé... *)
-      ( match type_r with | None -> true | Some _ -> false ) , env_vars 
-      (* On renvoie l'env_vars, utile pour récupérer les initialisations
+    | [] -> false , env_vars 
+      (* Si on attendait un return, on en a pas trouvé. 
+         Mais si type_r = None ce n'est pas grave. *)
+      (* On renvoie l'env_vars, pour récupérer les initialisations
          de variables au sein de sous bloc d'instructions *)
 
     | dinstr :: q -> 
@@ -1563,24 +1552,27 @@ let type_fichier l_ci =
         if jo_expr <> Some Jboolean 
         then raise (Typing_error {loc = dexpr.loc ;
           msg = "La condition d'un while doit être un booléen !" }) ;
+        ignore (verifie_bloc_instrs type_r dinstr'.loc env_typage env_vars' [dinstr'] ) ;
         (* On ne peut pas faire confiance au while pour initialiser des variables, donc
-           on ne fait rien du nouvel env_vars *)
-        ignore (verifie_bloc_instrs None dinstr'.loc env_typage env_vars' [dinstr']) ;
-        (* On ne veut pas de return dans un while *)
+           on ne fait rien du nouvel env_vars, de même pour le return. 
+           Ainsi, on se fiche de savoir si un return a été trouvé. En revanche si il en trouve
+           un, alors il faut qu'il soit de type type_r. *)
         verifie_bloc_instrs type_r loc_bloc env_typage env_vars' q
 
       | Ibloc(l_dinstrs) ->
-        let rb,env_vars_bloc = verifie_bloc_instrs None dinstr.loc env_typage env_vars l_dinstrs in
+        let rb,env_vars_bloc = verifie_bloc_instrs type_r dinstr.loc env_typage env_vars l_dinstrs in
         (* Comme pour les if, on est preneur des initialisations. *)
         let env_vars' = IdMap.mapi (fun id _ -> IdMap.find id env_vars_bloc) env_vars in
+        (* Si le return a été trouvé on arrête *)
         if rb then (true,env_vars')
         else verifie_bloc_instrs type_r loc_bloc env_typage env_vars' q
       end 
   in
   let verifie_bloc_instrs_effectif type_r loc_bloc env_typage env_vars l_instrs =
     let (r,_) = verifie_bloc_instrs type_r loc_bloc env_typage env_vars l_instrs in
-    if not r then raise (Typing_error {loc = loc_bloc ;
-    msg = "Il manque un return à ces instructions, on attend " ^ (str_of_djo type_r) })
+    if (not r) && type_r <> None 
+    then raise (Typing_error {loc = loc_bloc ;
+      msg = "Il manque un return à ces instructions, on attend " ^ (str_of_djo type_r) })
   in
   
   (* === Fonctions principales === *)
@@ -1629,7 +1621,7 @@ let type_fichier l_ci =
 
   IdSet.iter verifie_corps_c 
     (IdSet.diff env_typage_global.c (IdSet.of_list ["Object";"String";"Main"])) ;
-
+  
   (* Enfin, on traite Main *)
   let env_vars = IdMap.empty in
   let loc_main = Hashtbl.find env_typage_global.tab_loc "Main" in

@@ -555,54 +555,9 @@ let type_fichier l_ci =
         (List.exists (* Règle 4 des sous-types *)
           (fun dci' -> sous_type (Jntype dci') jtyp2 env_typage)
           (substi_list sigma l_precs)  )
-        || begin match jtyp2 with 
-          (* Potentiellement la règle 5 :
-             ATTENTION, il me semble qu'elle est fausse (version 3 du sujet), cf mon rapport. *)
-            | Jntype di -> implements dci di env_typage 
-                (* let Ntype (id_i,l_ntypes_i) = di.desc in
-                if not (IdSet.mem id_i env_typage.ci)
-                  then raise (Typing_error {loc = di.loc ;
-                    msg = "Classe ou interface inconnue dans le contexte"}) ;
-                (* La règle 5 porte sur une classe avec une interface *)
-                (IdSet.mem id_i env_typage.i)
-                && (IdSet.mem id_ci env_typage.c)
-                && begin 
-                  (* Il faut C implems I et en plus pile la bonne substitution
-                     donc encore une fois, on va remonter l'arbre d'héritage,
-                     jusqu'à trouver C implems I<theta>, puis on regarde si en 
-                     appliquant sigma à I<theta> on retombe sur notre I.
-                     Si j'ai le temps, vu le nombre de fois qu'on refait la même
-                     chose, ça serait sûrement mieux de stocker l'extends généralisée
-                     et pareil implems généralisée. Mais attention, il faudrait faire
-                     les substitutions au fûr et à mesure. *)
-                  
-                  let rec retrouve_i id_c = (* on n'utilise que les id *)
-                    let implems_id = Hashtbl.find env_typage.implements id_c in
-                    try
-                      Some (List.find
-                        (fun ({desc = Ntype (id_i',_)} : ntype desc) ->
-                          id_i' = id_i)
-                        implems_id)
-                    with
-                      | Not_found ->
-                          let rec recup_fst_ok = function
-                            | [] -> None
-                            | (Some i)::_ -> Some i
-                            | None :: q -> recup_fst_ok q
-                          in
-                          recup_fst_ok (List.map
-                            (fun ({desc = Ntype (id_c',_)} : ntype desc) ->
-                              retrouve_i id_c' )
-                            (Hashtbl.find env_typage.extends id_c))
-                  in
-                  match (retrouve_i id_ci) with
-                    | None -> false
-                    | Some di' -> 
-                        let ntype' = substi sigma (di').desc in   
-                        Ntype.equal di.desc ntype' 
-                end *)
-            | _ -> false
-          end
+        || (* La règle 5 *)
+        (* ATTENTION, il me semble qu'elle est fausse (version 3 du sujet), cf mon rapport. *)
+        (match jtyp2 with | Jntype di -> implements dci di env_typage | _ -> false )
     | _,_ -> false
   in
   let verifie_sous_type jtyp1 loc1 jtyp2 env_typage = 

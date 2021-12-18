@@ -28,7 +28,7 @@ let report (s,e) =
 let () =
     let ch = open_in !file in
     let lb = Lexing.from_channel ch in
-    let p = try Parser.fichier Lexer.token lb with
+    let arbre = try Parser.fichier Lexer.token lb with
         | Lexer.Non_fini { loc=pos ; msg=s } ->
           report pos ;
           eprintf "erreur lexicale: %s@." s ;
@@ -48,7 +48,7 @@ let () =
     in close_in ch ;
     if !parse_only then exit 0 ;
     
-    let t = try Typing.type_fichier p with
+    let typed = try Typing.type_fichier arbre with
         | Typing.Typing_error { loc=pos ; msg=s } ->
           report pos ;
           eprintf "erreur typage: %s@." s ;*
@@ -56,4 +56,7 @@ let () =
     in
     if !type_only then exit 0 ;
     
+    let code = Code_prod.prod typed in
+    let file_s = (Filename.chop_suffix file_java ".java")^".s" in
+    X86_64.print_in_file file_s ;
     exit 0

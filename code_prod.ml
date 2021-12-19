@@ -57,6 +57,37 @@ and cp_expr_simple es = match es with
                movq (lab lbl) (reg rax), label_lab ++ string s
   | ESthis ->
   | ESexpr e -> cp_expr e
-  | ESnew ->
-  | ESacces_meth ->
-  | ESacces_var ->
+  | ESnew (nt, l)  ->
+  | ESacces_meth (a, l) ->
+  | ESacces_var a ->
+and cp_acces a = match a with
+	| Aident id ->
+	| Achemin (es, id) ->
+
+let rec cp_instruction st = match st with
+	| Inil -> nop, nop
+	| Isimple es -> cp_expr_simple es
+	| Iequal (a, e) ->
+	| Idef (jt, id) ->
+	| Idef_init (jt, id, e) ->
+	| Iif (e, s1, s2) ->
+			let t0, d0 = cp_expr e in
+			let t1, d1 = cp_instruction s1 in
+			let t2, d2 = cp_instruction s2 in
+			let lbl1 = new_label_text () in
+			let lbl2 = new_label_text () in
+			t0 ++ testq (reg rax) (reg rax) ++ je lbl2 ++
+			t1 ++ jmp lbl1 ++ lab lbl2 ++
+			t2 ++ lab lbl1,	d0 ++ d1 ++ d2
+	| Iwhile (e, s) ->
+			let te, de = cp_expr e in
+			let ts, ds = cp_instruction s in
+			let lbl1 = new_label_text () in
+			let lbl2 = new_label_text () in
+			lab lbl1 ++ te ++ testq (reg rax) (reg rax) ++
+			je lbl2 ++ ts ++ jmp lbl1 ++ lab lbl2, de ++ ds
+	| Ibloc l -> let aux (t, d) s =
+								 let ti, di = cp_instruction s in
+								 t ++ ti, d ++ di
+							 in List.fold aux (nop, nop) l
+	| Ireturn opt ->

@@ -90,4 +90,7 @@ let rec cp_instruction st = match st with
 								 let ti, di = cp_instruction s in
 								 t ++ ti, d ++ di
 							 in List.fold aux (nop, nop) l
-	| Ireturn opt ->
+	| Ireturn opt -> let t, d = match opt with
+										 | None -> nop, nop
+										 | Some e -> cp_expr e
+									 in t ++ leave ++ ret, d										

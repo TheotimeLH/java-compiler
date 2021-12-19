@@ -3,6 +3,8 @@ open Ast
 open Ast_typing
 open X86_64
 
+type Smap = Map.Make(String)
+
 let (+=) (t1, d) t2 = t1 ++ t2, d
 let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
 
@@ -17,9 +19,13 @@ let new_data_label () =
   Format.sprintf "D%d" !ntl s
 
 let rec cp_expr cls var e = match e with
-  | Enull ->
+  | Enull -> nop, nop
   | Esimple es -> cp_expr_simple cls var es
-  | Eequal (a, e) ->                     
+  | Eequal (a, e) ->
+			cp_acces cls var a += 
+			movq (reg rax) (reg rbx) +++
+			cp_expr cls var +=
+			movq (reg rax) (ind (reg rbx))
   | Eunop (Uneg, e) -> cp_expr cls var e += negq (reg rax)
   | Eunop (Unot ,e) -> cp_expr cls var e += notq (reg rax)
   | Ebinop (Beq | Bneq | Blt | Ble | Bgt | Bge as op, e1, e2) ->  
@@ -51,6 +57,7 @@ let rec cp_expr cls var e = match e with
 			(match op with | Band -> je | Bor -> jne) lbl +++
 			cp_expr cls var e2 +=
 			label lbl
+			
 and cp_expr_simple cls var es = match es with
   | ESint n -> movq (imm n) (reg rax), nop
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
@@ -60,15 +67,20 @@ and cp_expr_simple cls var es = match es with
   | ESexpr e -> cp_expr cls var e
   | ESnew (nt, l)  ->
   | ESacces_meth (a, l) ->
-  | ESacces_var a ->
+  | ESacces_var a -> cp_acces cls var a
+	
 and cp_acces cls var a = match a with
-	| Aident id ->
+	| Aident id -> movq (imm (Smap.find id var)) (reg rax)
 	| Achemin (es, id) ->
 
 let rec cp_instruc cls var st = match st with
 	| Inil -> nop, nop
 	| Isimple es -> cp_expr_simple cls var es
 	| Iequal (a, e) ->
+			cp_acces cls var a += 
+			movq (reg rax) (reg rbx) +++
+			cp_expr cls var +=
+			movq (reg rax) (ind (reg rbx))
 	| Idef (jt, id) ->
 	| Idef_init (jt, id, e) ->
 	| Iif (e, s1, s2) ->

@@ -137,14 +137,14 @@ let cp_classe c =
 																cp_instr (Hashtbl.create 8) (Ibloc hi.body)
 		| [] -> (nop, nop)
 
-let prod prog =
+let cp_fichier prog =
 	let main = ref [] in
-	let rec cp_fichier f = match f with
-		| [{desc = Class c}]::q -> cp_classe c +++ cp_fichier q
-		| [{desc = Interface _}]::q -> cp_fichier q
-		| [{desc = Main l}]::q -> main:=l ; cp_fichier q
+	let rec aux f = match f with
+		| [{desc = Class c}]::q -> cp_classe c +++ aux q
+		| [{desc = Interface _}]::q -> aux q
+		| [{desc = Main l}]::q -> main:=l ; aux q
 		| _ -> (nop, nop)
-	in let tc, dc = cp_fichier prog in
+	in let tc, dc = aux prog in
 	let tm, dm = cp_instr (Hashtbl.create 8) (Ibloc !main) in
 	{ text =
 			globl "main" ++

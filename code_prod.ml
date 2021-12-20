@@ -113,8 +113,10 @@ let cp_classe c =
 
 let rec cp_fichier f = match f with
 		| [{desc = Class c}]::q -> cp_classe c =+ cp_fichier q
-		| [{desc = Main l}] -> cp_instruc (Hashtbl.create 8) (Ibloc l)
-		| _ -> exit 1 (* déjà vérifié *)
+		| [{desc = Interface _}]::q -> cp_fichier q
+		| [{desc = Main l}]::q -> let var = Hashtbl.create 8 in
+															cp_instruc var (Ibloc l) +++ cp_fichier q
+		| _ -> (nop, nop)
 
 let prod prog =
 	let t, d = cp_fichier prog in

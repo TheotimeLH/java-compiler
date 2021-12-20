@@ -8,7 +8,7 @@ type clas = { params: _ ; champs: ident list ;
 							meths: meth tbl ; conss: cons tbl }
 type meth = {etiq: label; args: ident list}
 type cons = {etiq: label; args: ident list}
-type var = {ofs: int ; scl: int}
+type var = Pile of int | Tas of int
 
 let (+=) (t1, d) t2 = t1 ++ t2, d
 let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
@@ -75,7 +75,9 @@ and cp_expr_simple vars es = match es with
   | ESacces_var a -> cp_acces vars a
 	
 and cp_acces vars a = match a with
-	| Aident id ->
+	| Aident id -> match Hashtbl.find vars id with
+									| Pile n -> movq (ind ~ofs:n (reg rbp)) (reg rax)
+									| Tas s -> movq (ilab s) (reg rax)
 	| Achemin (es, id) ->
 
 let rec cp_instruc var st = match st with

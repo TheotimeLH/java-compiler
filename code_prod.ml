@@ -3,31 +3,32 @@ open Ast
 open Ast_typing
 open X86_64
 
-type Smap = Map.Make(String)
-
 let (+=) (t1, d) t2 = t1 ++ t2, d
+let (=+) d1 (t, d2) = t, d1 ++ d2
 let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
 
 let nlbl = ref 0
-let new_lbl () =
-  incr ntl ;
-  Format.sprintf "%d" !ntl
+let cls = Hashtbl.create 8
 
-let rec cp_expr cls var e = match e with
+let new_lbl () =
+  incr nlbl ;
+  Format.sprintf "%d" !nlbl
+
+let rec cp_expr var e = match e with
   | Enull -> nop, nop
-  | Esimple es -> cp_expr_simple cls var es
+  | Esimple es -> cp_expr_simple var es
   | Eequal (a, e) ->
-			cp_acces cls var a += 
+			cp_acces var a += 
 			pushq (reg rax) +++
-			cp_expr cls var e +=
+			cp_expr var e +=
 			popq (reg rbx) +=
 			movq (reg rax) (ind (reg rbx))
-  | Eunop (Uneg, e) -> cp_expr cls var e += negq (reg rax)
-  | Eunop (Unot ,e) -> cp_expr cls var e += notq (reg rax)
+  | Eunop (Uneg, e) -> cp_expr var e += negq (reg rax)
+  | Eunop (Unot ,e) -> cp_expr var e += notq (reg rax)
   | Ebinop (Beq | Bneq | Blt | Ble | Bgt | Bge as op, e1, e2) ->  
-      cp_expr cls var e1 +=
+      cp_expr var e1 +=
 			pushq (reg rax) +++
-			cp_expr cls var e2 +=
+			cp_expr var e2 +=
 			popq (reg rbx)
 			cmpq (reg rax) (reg rbx) +=
 			begin match op with
@@ -36,9 +37,9 @@ let rec cp_expr cls var e = match e with
 				| Bgt -> setg | Bge -> setge
 			end (reg rax)
 	| Ebinop (Badd | Bsub | Bmul | Bdiv | Bmod as op, e1 , e2) ->
-			cp_expr cls var e1 +=
+			cp_expr var e1 +=
 			pushq (reg rax) +++
-			cp_expr cls var e2 +=
+			cp_expr var e2 +=
 			movq (reg rax) (reg rbx) +=
 			popq (reg rax) +=
 			begin match op with
@@ -49,34 +50,34 @@ let rec cp_expr cls var e = match e with
 				| Bmod -> idivq (reg rbx) ++ movq (reg rdx) (reg rax) end
 	| Ebinop (Band | Bor as op, e1, e2) ->
 			let lbl = new_lbl () in
-			cp_expr cls var e1 +=
+			cp_expr var e1 +=
 			testq (reg rax) (reg rax) +=
 			(match op with | Band -> je | Bor -> jne) lbl +++
-			cp_expr cls var e2 +=
+			cp_expr var e2 +=
 			label lbl
 			
-and cp_expr_simple cls var es = match es with
+and cp_expr_simple var es = match es with
   | ESint n -> movq (imm n) (reg rax), nop
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
   | ESstr s -> let lbl = new_data_label () in
                movq (lab lbl) (reg rax), label lbl ++ string s
   | ESthis -> 
-  | ESexpr e -> cp_expr cls var e
+  | ESexpr e -> cp_expr var e
   | ESnew (nt, l)  ->
   | ESacces_meth (a, l) ->
-  | ESacces_var a -> cp_acces cls var a
+  | ESacces_var a -> cp_acces var a
 	
-and cp_acces cls var a = match a with
+and cp_acces var a = match a with
 	| Aident id ->
 	| Achemin (es, id) ->
 
-let rec cp_instruc cls var st = match st with
+let rec cp_instruc var st = match st with
 	| Inil -> nop, nop
-	| Isimple es -> cp_expr_simple cls var es
+	| Isimple es -> cp_expr_simple var es
 	| Iequal (a, e) ->
-			cp_acces cls var a += 
+			cp_acces var a += 
 			pushq (reg rax) +++
-			cp_expr cls var z +=
+			cp_expr var z +=
 			popq (reg rbx) +=
 			movq (reg rax) (ind (reg rbx))
 	| Idef (jt, id) ->
@@ -84,27 +85,38 @@ let rec cp_instruc cls var st = match st with
 	| Iif (e, s1, s2) ->
 			let lbl1 = new_lbl () in
 			let lbl2 = new_lbl () in
-			cp_expr cls var e +=
+			cp_expr var e +=
 			testq (reg rax) (reg rax) +=
 			je lbl2 +++
-			cp_instruc cls var s1 +=
+			cp_instruc var s1 +=
 			jmp lbl1 +=
 			lab lbl2 +++
-			cp_instruc cls var s2 +=
+			cp_instruc var s2 +=
 			lab lbl1
 	| Iwhile (e, s) ->
 			let lbl1 = new_lbl () in
 			let lbl2 = new_lbl () in
 			(lab lbl1, nop) +++
-			cp_expr cls var e +=
+			cp_expr var e +=
 			testq (reg rax) (reg rax) +=
 			je lbl2 +++
-			cp_instruc cls var s +=
+			cp_instruc var s +=
 			jmp lbl1 +=
 			lab lbl2
-	| Ibloc l -> let aux cd s = cd +++ cp_instruc cls var s
-							 in List.fold_left aux (nop, nop) l
+	| Ibloc l -> let loc = Hashtbl.copy var in
+							 List.fold_left (+++) (nop, nop)
+							 (List.map (cp_instruc loc) l)
 	| Ireturn None -> (nop, nop) += leave += ret
 	| Ireturn (Some e) -> cp_expr cls var e += leave += ret
-									 
-let prod prog = 
+
+let cp_classe c =
+
+let rec cp_fichier f = match f with
+		| [{desc = Class c}]::q -> cp_classe c =+ cp_fichier q
+		| [{desc = Main l}] -> cp_instruc (Hashtbl.create 8) (Ibloc l)
+		| _ -> exit 1 (* déjà vérifié *)
+
+let prod prog =
+	let t, d = cp_fichier prog in
+	{ text = globl "main" ++ t ;
+		data = d }

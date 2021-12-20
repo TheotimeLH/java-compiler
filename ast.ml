@@ -22,7 +22,7 @@ type unop =
 type binop =
   | Badd | Bsub | Bmul | Bdiv | Bmod    (* + - * / % *)
   | Beq | Bneq | Blt | Ble | Bgt | Bge  (* == != < <= > >= *)
-  | Band | Bor                          (* && || *)
+  | Band | Bor | Bcat                   (* && || + *)
 
 type expr =
 	|	Enull

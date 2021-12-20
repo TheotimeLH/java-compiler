@@ -107,3 +107,4 @@ let rec cp_instruc cls var st = match st with
 	| Ireturn None -> (nop, nop) += leave += ret
 	| Ireturn (Some e) -> cp_expr cls var e += leave += ret
 									 
+let prod prog = 

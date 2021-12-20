@@ -57,7 +57,7 @@ let () =
     if !type_only then exit 0 ;
     
     (*
-    let code = Code_prod.prod typed in
+    let code = Compiler.cp_fichier typed in
     let file_s = (Filename.chop_suffix file_java ".java")^".s" in
     X86_64.print_in_file file_s ;
     *)

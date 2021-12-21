@@ -20,6 +20,16 @@ let new_lbl () =
   incr nlbl ;
   Format.sprintf "%d" !nlbl
 
+let rec tp_expr vars e = match e with
+	| Enull -> Jtypenull
+	| Esimple es | Eequal (_, es) -> tp_expr_simple vars es
+	| Ebinop (Bcat,_,_) -> Jntype { desc = Ntype ("String", []) ;
+												 loc = Lexing.dummy_pos, Lexing.dummy_pos}
+	| Ebinop(Badd | Bsub | Bmul | Bdiv | Bmod,_,_)
+	| Eunop (Uneg, _) -> Jint
+	| Eunop _ | Ebinop _ -> Jboolean
+and tp_expr_simple vars es = match es with
+
 let rec cp_expr vars e = match e with
   | Enull -> nop, nop
   | Esimple es -> cp_expr_simple vars es

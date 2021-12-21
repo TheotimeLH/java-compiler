@@ -3,15 +3,18 @@ open Ast
 open Ast_typing
 open X86_64
 
-type adresse = Pile of int | Tas of label | No
-type objet = {tp: jtype; adrs: adresse}
-let jnt nt = Jntype { desc = nt ; loc = Lexing.dummy_pos, Lexing.dummy_pos }
+type adresse = Ofs of int | Lbl of label | No
+type obj = {tp: jtype; adrs: adresse}
+type cls = {params: obj tbl; champs: obj tbl;
+						mutable cons: adresse; meths: obj tbl}
+let jnt nt = Jntype { desc = nt ;
+		loc = Lexing.dummy_pos, Lexing.dummy_pos }
 
 let (+=) (t1, d) t2 = t1 ++ t2, d
 let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
 
 let nlbl = ref 0
-let cls = Hashtbl.create 8
+let clss = Hashtbl.create 8
 
 let new_lbl () =
   incr nlbl ;
@@ -39,7 +42,7 @@ and tp_acces vars a = match a with
 	| Aident id -> (Hashtbl.find vars id).tp
 	| Achemin (es, id) ->
 			let c = match tp_expr_simple vars es with
-				| Jntype { desc = Ntype (nom, _) } -> Hashtbl.find cls nom
+				| Jntype { desc = Ntype (nom, _) } -> Hashtbl.find clss nom
 				| _ -> exit 1
 			in (Hashtbl.find c id).tp
 
@@ -104,7 +107,7 @@ and cp_expr_simple vars es = match es with
 			let aux cd e = cp_expr vars e +=
 										 pushq (reg rax) +++
 										 cd += popq (reg rcx)
-			and c = (Hashtbl.find cls id).cons in
+			and c = (Hashtbl.find clss id).cons in
 			List.fold_left aux (call c) l
   | ESacces_meth (a, l) ->
 			let aux cd e = cp_expr vars e +=
@@ -115,13 +118,13 @@ and cp_expr_simple vars es = match es with
 	
 and cp_acces vars a = match a with
 	| Aident id -> match Hashtbl.find vars id with
-									| Pile n -> movq (ind (~ofs:n) (reg rbp)) (reg rax)
-									| Tas s -> movq (ilab s) (reg rax)
+									| Ofs n -> movq (ind (~ofs:n) (reg rbp)) (reg rax)
+									| Lbl s -> movq (ilab s) (reg rax)
 	| Achemin (es, id) ->
 			let lbl = match tp_expr_simple vars es with
 				| Jntype { desc = Ntype (nom, _) } ->
-						let c = Hashtbl.find cls nom in
-						(Hashtbl.find c.obj id).adrs
+						let c = Hashtbl.find clss nom in
+						(Hashtbl.find c.meths id).adrs
 				| _ -> exit 1 in
 			cp_expr_simple vars es +=
 			pushq (reg rax) +=
@@ -167,27 +170,34 @@ let rec cp_instruc vars st = match st with
 	| Ireturn (Some e) -> cp_expr cls vars e += leave += ret	
 
 let cp_classe c =
-	let ci = match c.extd with
-		| None -> {	params = [] ; champs = [] ;
-								meths = Hashtbl.create 8 ;
-								conss = Hashtbl.create 8 }
-		| Some {desc = Ntype (id ,l)} -> Hashtbl.find cls nt.id
-		
-	in let rec aux d = match d with
-		| [{desc = Dchamp h}]::q -> 
-		| [{desc = Dconstr h}]::q -> let hi = { lbl = new_label () ; args = h.params } in
-																 Hashtbl.replace info.conss h.nom hi ;
-																 aux d += label hi.lbl +++
-																 cp_instr (Hashtbl.create 8) (Ibloc hi.body)
-		| [{desc = Dmeth h}]::q -> 	let hi = { etiq = new_label () ; args = h.params } in
-																Hashtbl.replace info.meths h.nom hi ;
-																aux d += label hi.lbl +++
-																cp_instr (Hashtbl.create 8) (Ibloc hi.body)
-		| [] -> (nop, nop)
+
+let init c =
+	let info = match c.extd with
+		| None -> { params = Hashtbl.create 8 ; 
+								champs = Hashtbl.create 8 ;
+								cons = No ;	meths = Hashtbl.create 8 }
+		| Some { desc = Ntype (id, _) } -> Hashtbl.find clss id
+	in let k = ref 0 in
+	let rec aux d = match d with
+		| [{desc = Dchamp (jt, id) }] ->
+				Hashtbl.replace info.champs id
+				{ tp = jt.desc ; adrs = Ofs !k*8} ; incr k
+		| [{desc = Dconstr _}] -> info.cons = Lbl (new_label ())
+		| [{desc = Dmeth {desc = m} }] ->
+				let jtp = match m.info.desc.typ with
+					| None -> Jtypenull | Some jt -> jt in
+				Hashtbl.replace info.meths m.info.desc.nom
+				{ tp = jtp ; adrs = Lbl (new_label ()) }
+	in aux c.decl
 
 let cp_fichier prog =
+	let init f = match f with
+		| [{desc = Class c}]::q -> cinit c ; init q
+		| _::q -> init q
+		| _ -> ()
+	in init prog ;
 	let main = ref [] in
-	let rec aux f = match f with
+	let rec code f = match f with
 		| [{desc = Class c}]::q -> cp_classe c +++ aux q
 		| [{desc = Interface _}]::q -> aux q
 		| [{desc = Main l}]::q -> main:=l ; aux q

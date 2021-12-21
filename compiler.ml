@@ -27,16 +27,16 @@ let rec cp_expr vars e = match e with
 			cp_acces vars a += 
 			pushq (reg rax) +++
 			cp_expr vars e +=
-			popq (reg rbx) +=
-			movq (reg rax) (ind (reg rbx))
+			popq (reg rdx) +=
+			movq (reg rax) (ind (reg rdx))
   | Eunop (Uneg, e) -> cp_expr vars e += negq (reg rax)
   | Eunop (Unot ,e) -> cp_expr vars e += notq (reg rax)
   | Ebinop (Beq | Bneq | Blt | Ble | Bgt | Bge as op, e1, e2) ->  
       cp_expr vars e1 +=
 			pushq (reg rax) +++
 			cp_expr vars e2 +=
-			popq (reg rbx)
-			cmpq (reg rax) (reg rbx) +=
+			popq (reg rdx)
+			cmpq (reg rax) (reg rdx) +=
 			begin match op with
 				| Beq -> sete | Bneq -> setne
 				| Blt -> setl | Ble -> setle
@@ -62,13 +62,19 @@ let rec cp_expr vars e = match e with
 			cp_expr vars e2 +=
 			label lbl
 	| Ebinop (Bcat, e1, e2) ->
+			cp_expr vars e1 +=
+			pushq (reg rax) +++
+			cp_expr vars e2 +=
+			popq (reg rdi) +=
+			movq (reg rax) (reg rsi) +=
+			call "String.concat"
 			
 and cp_expr_simple vars es = match es with
   | ESint n -> movq (imm n) (reg rax), nop
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
-  | ESstr s -> let lbl = new_data_label () in
+  | ESstr s -> let lbl = new_label () in
                movq (lab lbl) (reg rax), label lbl ++ string s
-  | ESthis -> 
+  | ESthis -> movq (ind (~ofs:+16) (reg rbp)) (reg rax)
   | ESexpr e -> cp_expr vars e
   | ESnew (nt, l)  ->
   | ESacces_meth (a, l) ->
@@ -76,7 +82,7 @@ and cp_expr_simple vars es = match es with
 	
 and cp_acces vars a = match a with
 	| Aident id -> match Hashtbl.find vars id with
-									| Pile n -> movq (ind ~ofs:n (reg rbp)) (reg rax)
+									| Pile n -> movq (ind (~ofs:n) (reg rbp)) (reg rax)
 									| Tas s -> movq (ilab s) (reg rax)
 	| Achemin (es, id) ->
 
@@ -147,8 +153,8 @@ let cp_fichier prog =
 	in let tc, dc = aux prog in
 	let tm, dm = cp_instr (Hashtbl.create 8) (Ibloc !main) in
 	{ text =
-			globl "main" ++
-			label "main" ++
+			globl "Main" ++
+			label "Main" ++
 			tm ++
 			movq (imm 0) (reg rax) ++
 			ret ++

@@ -3,12 +3,9 @@ open Ast
 open Ast_typing
 open X86_64
 
-type 'a tbl = (ident, 'a) Hashtbl
-type clas = { params: _ ; champs: ident list ;
-							meths: meth tbl ; conss: cons tbl }
-type meth = {etiq: label; args: ident list}
-type cons = {etiq: label; args: ident list}
-type var = Pile of int | Tas of int
+type adresse = Pile of int | Tas of label | No
+type objet = {tp: jtype; adrs: adresse}
+let jnt nt = Jntype { desc = nt ; loc = Lexing.dummy_pos, Lexing.dummy_pos }
 
 let (+=) (t1, d) t2 = t1 ++ t2, d
 let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
@@ -23,12 +20,28 @@ let new_lbl () =
 let rec tp_expr vars e = match e with
 	| Enull -> Jtypenull
 	| Esimple es | Eequal (_, es) -> tp_expr_simple vars es
-	| Ebinop (Bcat,_,_) -> Jntype { desc = Ntype ("String", []) ;
-												 loc = Lexing.dummy_pos, Lexing.dummy_pos}
-	| Ebinop(Badd | Bsub | Bmul | Bdiv | Bmod,_,_)
+	| Ebinop (Badd,e1,e2) ->
+			if tp_expr vars e1 = Jint && tp_expr vars e2 = Jint
+			then Jint else jnt ( Ntype ("String", []) )
+	| Ebinop(Bsub | Bmul | Bdiv | Bmod,_,_)
 	| Eunop (Uneg, _) -> Jint
 	| Eunop _ | Ebinop _ -> Jboolean
 and tp_expr_simple vars es = match es with
+	| ESint -> Jint
+	| ESboll -> Jboolean
+	| ESstr -> jstring
+	| ESthis -> (Hasstbl.find vars "this").tp
+	| ESexpr e -> tp_expr vars e
+	| ESnew (nt, _) -> jnt nt
+	| ESacces_meth (a, _) -> tp_acces vars a
+	| ESacces_var a ->  tp_acces vars a
+and tp_acces vars a = match a with
+	| Aident id -> (Hashtbl.find vars id).tp
+	| Achemin (es, id) ->
+			let c = match tp_expr_simple vars es with
+				| Jntype { desc = Ntype (nom, _) } -> Hashtbl.find cls nom
+				| _ -> exit 1
+			in (Hashtbl.find c id).tp
 
 let rec cp_expr vars e = match e with
   | Enull -> nop, nop
@@ -41,6 +54,7 @@ let rec cp_expr vars e = match e with
 			movq (reg rax) (ind (reg rdx))
   | Eunop (Uneg, e) -> cp_expr vars e += negq (reg rax)
   | Eunop (Unot ,e) -> cp_expr vars e += notq (reg rax)
+	| Ebinop (Badd, e1, e2) when tp_expr vars e1 <> Jint || tp_expr vars e2 <> Jint ->
   | Ebinop (Beq | Bneq | Blt | Ble | Bgt | Bge as op, e1, e2) ->  
       cp_expr vars e1 +=
 			pushq (reg rax) +++
@@ -86,8 +100,17 @@ and cp_expr_simple vars es = match es with
                movq (lab lbl) (reg rax), label lbl ++ string s
   | ESthis -> movq (ind (~ofs:+16) (reg rbp)) (reg rax)
   | ESexpr e -> cp_expr vars e
-  | ESnew (nt, l)  ->
+  | ESnew (Ntype (id, _), l)  ->
+			let aux cd e = cp_expr vars e +=
+										 pushq (reg rax) +++
+										 cd += popq (reg rcx)
+			and c = (Hashtbl.find cls id).cons in
+			List.fold_left aux (call c) l
   | ESacces_meth (a, l) ->
+			let aux cd e = cp_expr vars e +=
+										 pushq (reg rax) +++
+										 cd += popq (reg rcx)
+			in List.fold_left aux (cp_acces vars a) l
   | ESacces_var a -> cp_acces vars a
 	
 and cp_acces vars a = match a with
@@ -95,8 +118,17 @@ and cp_acces vars a = match a with
 									| Pile n -> movq (ind (~ofs:n) (reg rbp)) (reg rax)
 									| Tas s -> movq (ilab s) (reg rax)
 	| Achemin (es, id) ->
+			let lbl = match tp_expr_simple vars es with
+				| Jntype { desc = Ntype (nom, _) } ->
+						let c = Hashtbl.find cls nom in
+						(Hashtbl.find c.obj id).adrs
+				| _ -> exit 1 in
+			cp_expr_simple vars es +=
+			pushq (reg rax) +=
+			call lbl +=
+			popq (reg rcx)
 
-let rec cp_instruc var st = match st with
+let rec cp_instruc vars st = match st with
 	| Inil -> nop, nop
 	| Isimple es -> cp_expr_simple vars es
 	| Iequal (a, e) ->

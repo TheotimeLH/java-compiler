@@ -1,6 +1,5 @@
 
 open Ast
-open Ast_typing
 open X86_64
 
 type adresse = Ofs of int | Lbl of label | No
@@ -170,25 +169,42 @@ let rec cp_instruc vars st = match st with
 	| Ireturn (Some e) -> cp_expr cls vars e += leave += ret	
 
 let cp_classe c =
-
-let init c =
-	let info = match c.extd with
+	let cinfo = Hashtbl.find clss c in
+	let rec aux d = match d with
+		| [{desc = Dconstr cs}]::q ->
+				let vars = Hashtbl.create 8 and k = ref 8 in
+				List.iter ( fun p -> incr k ; Hashtbl.replace vars p.nom
+									{ tp = p.typ.desc ; adrs = Ofs !k } ) cs.param ;
+				aux q += lab cinfo.cons +++
+				cp_instruc vars (Ibloc cs.body)
+		| [{desc = Dmeth m}]::q ->
+				let vars = Hashtbl.create 8 and k = ref 16 in
+				List.iter
+		| _::q -> aux q
+		| [] -> (nop,nop)
+	in aux c.body
+	
+let cinit c =
+	let cinfo = match c.extd with
 		| None -> { params = Hashtbl.create 8 ; 
 								champs = Hashtbl.create 8 ;
 								cons = No ;	meths = Hashtbl.create 8 }
 		| Some { desc = Ntype (id, _) } -> Hashtbl.find clss id
 	in let k = ref 0 in
 	let rec aux d = match d with
-		| [{desc = Dchamp (jt, id) }] ->
-				Hashtbl.replace info.champs id
-				{ tp = jt.desc ; adrs = Ofs !k*8} ; incr k
-		| [{desc = Dconstr _}] -> info.cons = Lbl (new_label ())
-		| [{desc = Dmeth {desc = m} }] ->
+		| [{desc = Dchamp (jt, id) }]::q ->
+				Hashtbl.replace cinfo.champs id
+				{ tp = jt.desc ; adrs = Ofs !k*8 } ;
+				incr k ; aux q
+		| [{desc = Dconstr _}]::q ->
+				cinfo.cons = Lbl (new_label ()) ; aux q
+		| [{desc = Dmeth {desc = m} }]::q ->
 				let jtp = match m.info.desc.typ with
 					| None -> Jtypenull | Some jt -> jt in
-				Hashtbl.replace info.meths m.info.desc.nom
-				{ tp = jtp ; adrs = Lbl (new_label ()) }
-	in aux c.decl
+				Hashtbl.replace cinfo.meths m.info.desc.nom
+				{ tp = jtp ; adrs = Lbl (new_label ()) } ; aux q
+		| [] -> ()
+	in aux c.body
 
 let cp_fichier prog =
 	let init f = match f with

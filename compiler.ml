@@ -23,7 +23,7 @@ let rec tp_expr vars e = match e with
 	| Enull -> Jtypenull
 	| Esimple es | Eequal (_, es) -> tp_expr_simple vars es
 	| Ebinop (Badd,e1,e2) ->
-			if tp_expr vars e1 = Jint && tp_expr vars e2 = Jint
+			if tp_expr vars e1 = Jint && tp_expr vars e 2 = Jint
 			then Jint else jnt ( Ntype ("String", []) )
 	| Ebinop(Bsub | Bmul | Bdiv | Bmod,_,_)
 	| Eunop (Uneg, _) -> Jint
@@ -174,20 +174,21 @@ let cp_classe c =
 		| [{desc = Dconstr cs}]::q ->
 				let vars = Hashtbl.create 8 and k = ref 8 in
 				List.iter ( fun p -> incr k ; Hashtbl.replace vars p.nom
-									{ tp = p.typ.desc ; adrs = Ofs !k } ) cs.param ;
+									{ tp = p.typ.desc ; adrs = Ofs !k*8 } ) cs.param ;
 				aux q += lab cinfo.cons +++
 				cp_instruc vars (Ibloc cs.body)
 		| [{desc = Dmeth m}]::q ->
 				let vars = Hashtbl.create 8 and k = ref 16 in
-				List.iter
+				
 		| _::q -> aux q
-		| [] -> (nop,nop)
+		| [] -> nop, nop
 	in aux c.body
 	
 let cinit c =
 	let cinfo = match c.extd with
-		| None -> { params = Hashtbl.create 8 ; 
-								champs = Hashtbl.create 8 ; cons = No }
+		| None -> { params = Hashtbl.create 8 ;
+								champs = Hashtbl.create 8 ;
+								meths = Hashtbl.create 8 ; cons = No }
 		| Some { desc = Ntype (id, _) } -> Hashtbl.find clss id
 	in let k = ref 0 in
 	let rec aux d = match d with
@@ -200,7 +201,7 @@ let cinit c =
 		| [{desc = Dmeth {desc = m} }]::q ->
 				let jtp = match m.info.desc.typ with
 					| None -> Jtypenull | Some jt -> jt in
-				Hashtbl.replace cinfo.champs m.info.desc.nom
+				Hashtbl.replace cinfo.meths m.info.desc.nom
 				{ tp = jtp ; adrs = Lbl (new_label ()) } ; aux q
 		| [] -> ()
 	in aux c.body
@@ -213,11 +214,11 @@ let cp_fichier prog =
 	in init prog ;
 	let rec code f = match f with
 		| [{desc = Class c}]::q -> aux q +++ cp_classe c
-		| [{desc = Interface _}]::q -> aux q
 		| [{desc = Main l}]::q ->
 				cp_instruc (Hashtbl.create 8) (Ibloc l) +=
 				movq (imm 0) (reg rax) += ret +++ aux q
-		| _ -> nop, nop
+		| _::q -> aux q 
+		| [] -> nop, nop
 	in let t, d = aux prog in
 	{ text =
 			globl "Main" ++

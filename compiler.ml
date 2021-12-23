@@ -187,8 +187,7 @@ let cp_classe c =
 let cinit c =
 	let cinfo = match c.extd with
 		| None -> { params = Hashtbl.create 8 ; 
-								champs = Hashtbl.create 8 ;
-								cons = No ;	meths = Hashtbl.create 8 }
+								champs = Hashtbl.create 8 ; cons = No }
 		| Some { desc = Ntype (id, _) } -> Hashtbl.find clss id
 	in let k = ref 0 in
 	let rec aux d = match d with
@@ -201,7 +200,7 @@ let cinit c =
 		| [{desc = Dmeth {desc = m} }]::q ->
 				let jtp = match m.info.desc.typ with
 					| None -> Jtypenull | Some jt -> jt in
-				Hashtbl.replace cinfo.meths m.info.desc.nom
+				Hashtbl.replace cinfo.champs m.info.desc.nom
 				{ tp = jtp ; adrs = Lbl (new_label ()) } ; aux q
 		| [] -> ()
 	in aux c.body
@@ -212,19 +211,16 @@ let cp_fichier prog =
 		| _::q -> init q
 		| _ -> ()
 	in init prog ;
-	let main = ref [] in
 	let rec code f = match f with
-		| [{desc = Class c}]::q -> cp_classe c +++ aux q
+		| [{desc = Class c}]::q -> aux q +++ cp_classe c
 		| [{desc = Interface _}]::q -> aux q
-		| [{desc = Main l}]::q -> main:=l ; aux q
-		| _ -> (nop, nop)
-	in let tc, dc = aux prog in
-	let tm, dm = cp_instr (Hashtbl.create 8) (Ibloc !main) in
+		| [{desc = Main l}]::q ->
+				cp_instruc (Hashtbl.create 8) (Ibloc l) +=
+				movq (imm 0) (reg rax) += ret +++ aux q
+		| _ -> nop, nop
+	in let t, d = aux prog in
 	{ text =
 			globl "Main" ++
 			label "Main" ++
-			tm ++
-			movq (imm 0) (reg rax) ++
-			ret ++
-			tc ;
-		data = dc ++ dm }
+			t ;
+		data = d }

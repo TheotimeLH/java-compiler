@@ -2,10 +2,11 @@
 open Ast
 open X86_64
 
-type adresse = Ofs of int | Lbl of label | No
-type obj = {tp: jtype; adrs: adresse}
-type cls = {params: obj tbl; champs: obj tbl;
-						mutable cons: adresse; meths: obj tbl}
+type adresse = int option * label option
+type champ = {tp: jtype; ofs: int }
+type meth = {tp: jtype; lbl: label}
+type cls = {params: 'a tbl; champs: champ tbl;
+						mutable cons: adresse; meths: meth tbl}
 let jnt nt = Jntype { desc = nt ;
 		loc = Lexing.dummy_pos, Lexing.dummy_pos }
 
@@ -57,6 +58,7 @@ let rec cp_expr vars e = match e with
   | Eunop (Uneg, e) -> cp_expr vars e += negq (reg rax)
   | Eunop (Unot ,e) -> cp_expr vars e += notq (reg rax)
 	| Ebinop (Badd, e1, e2) when tp_expr vars e1 <> Jint || tp_expr vars e2 <> Jint ->
+	
   | Ebinop (Beq | Bneq | Blt | Ble | Bgt | Bge as op, e1, e2) ->  
       cp_expr vars e1 +=
 			pushq (reg rax) +++
@@ -87,48 +89,45 @@ let rec cp_expr vars e = match e with
 			(match op with | Band -> je | Bor -> jne) lbl +++
 			cp_expr vars e2 +=
 			label lbl
-	| Ebinop (Bcat, e1, e2) ->
-			cp_expr vars e1 +=
-			pushq (reg rax) +++
-			cp_expr vars e2 +=
-			popq (reg rdi) +=
-			movq (reg rax) (reg rsi) +=
-			call "String.concat"
 			
 and cp_expr_simple vars es = match es with
   | ESint n -> movq (imm n) (reg rax), nop
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
-  | ESstr s -> let lbl = new_label () in
-               movq (lab lbl) (reg rax), label lbl ++ string s
-  | ESthis -> movq (ind (~ofs:+16) (reg rbp)) (reg rax)
+  | ESstr s -> let lbl = new_lbl () in
+               movq (label lbl) (reg rax), lbl lbl ++ string s
+  | ESthis -> movq (ind (~ofs:16) (reg rbp)) (reg rax)
   | ESexpr e -> cp_expr vars e
   | ESnew (Ntype (id, _), l)  ->
-			let aux cd e = cp_expr vars e +=
-										 pushq (reg rax) +++
-										 cd += popq (reg rcx)
-			and c = (Hashtbl.find clss id).cons in
-			List.fold_left aux (call c) l
+			
   | ESacces_meth (a, l) ->
-			let aux cd e = cp_expr vars e +=
-										 pushq (reg rax) +++
-										 cd += popq (reg rcx)
-			in List.fold_left aux (cp_acces vars a) l
+			
   | ESacces_var a -> cp_acces vars a
 	
 and cp_acces vars a = match a with
-	| Aident id -> match Hashtbl.find vars id with
-									| Ofs n -> movq (ind (~ofs:n) (reg rbp)) (reg rax)
-									| Lbl s -> movq (ilab s) (reg rax)
+	| Aident id ->
+			let ofs, lbl = Hashtbl.find vars id in
+			( match lbl with
+					| None -> movq (reg rbp) (reg rbx)
+					| Some s -> movq (ilab s) (reg rbx) ) ++
+			( match ofs with
+					| None -> movq (reg rbx) (reg rax)
+					| Some k -> (ind (~ofs:k) (reg rbx)) (reg rax) ), nop
 	| Achemin (es, id) ->
-			let lbl = match tp_expr_simple vars es with
+			match tp_expr_simple vars es with
 				| Jntype { desc = Ntype (nom, _) } ->
 						let c = Hashtbl.find clss nom in
-						(Hashtbl.find c.meths id).adrs
+						try let m = Hashtbl.find c.meths id in
+								cp_expr_simple vars es +=
+								pushq (reg rax) +=
+								call m.lbl +=
+								popq (reg rcx)
+						with Not_found ->
+								let ch = Hashtbl.find c.champs id in
+								cp_expr_simple vars es +=
+								movq (reg rax) (reg rbx) +=
+								movq (ind (~ods:ch.ofs) (reg rbx)) (reg rax)
 				| _ -> exit 1 in
-			cp_expr_simple vars es +=
-			pushq (reg rax) +=
-			call lbl +=
-			popq (reg rcx)
+			
 
 let rec cp_instruc vars st = match st with
 	| Inil -> nop, nop
@@ -136,7 +135,7 @@ let rec cp_instruc vars st = match st with
 	| Iequal (a, e) ->
 			cp_acces vars a += 
 			pushq (reg rax) +++
-			cp_expr vars z +=
+			cp_expr vars e +=
 			popq (reg rbx) +=
 			movq (reg rax) (ind (reg rbx))
 	| Idef (jt, id) ->
@@ -149,23 +148,23 @@ let rec cp_instruc vars st = match st with
 			je lbl2 +++
 			cp_instruc vars s1 +=
 			jmp lbl1 +=
-			lab lbl2 +++
+			label lbl2 +++
 			cp_instruc vars s2 +=
-			lab lbl1
+			label lbl1
 	| Iwhile (e, s) ->
 			let lbl1 = new_lbl () in
 			let lbl2 = new_lbl () in
-			(lab lbl1, nop) +++
+			(label lbl1, nop) +++
 			cp_expr vars e +=
 			testq (reg rax) (reg rax) +=
 			je lbl2 +++
 			cp_instruc vars s +=
 			jmp lbl1 +=
-			lab lbl2
+			label lbl2
 	| Ibloc l -> let loc = Hashtbl.copy vars in
 							 List.fold_left (+++) (nop, nop)
 							 (List.map (cp_instruc loc) l)
-	| Ireturn None -> (nop, nop) += leave += ret
+	| Ireturn None -> leave ++ ret, nop
 	| Ireturn (Some e) -> cp_expr cls vars e += leave += ret	
 
 let cp_classe c =
@@ -173,10 +172,7 @@ let cp_classe c =
 	let rec aux d = match d with
 		| [{desc = Dconstr cs}]::q ->
 				let vars = Hashtbl.create 8 and k = ref 8 in
-				List.iter ( fun p -> incr k ; Hashtbl.replace vars p.nom
-									{ tp = p.typ.desc ; adrs = Ofs !k*8 } ) cs.param ;
-				aux q += lab cinfo.cons +++
-				cp_instruc vars (Ibloc cs.body)
+				
 		| [{desc = Dmeth m}]::q ->
 				let vars = Hashtbl.create 8 and k = ref 16 in
 				
@@ -197,12 +193,12 @@ let cinit c =
 				{ tp = jt.desc ; adrs = Ofs !k*8 } ;
 				incr k ; aux q
 		| [{desc = Dconstr _}]::q ->
-				cinfo.cons = Lbl (new_label ()) ; aux q
+				cinfo.cons = Lbl (new_lbl ()) ; aux q
 		| [{desc = Dmeth {desc = m} }]::q ->
 				let jtp = match m.info.desc.typ with
 					| None -> Jtypenull | Some jt -> jt in
 				Hashtbl.replace cinfo.meths m.info.desc.nom
-				{ tp = jtp ; adrs = Lbl (new_label ()) } ; aux q
+				{ tp = jtp ; adrs = Lbl (new_lbl ()) } ; aux q
 		| [] -> ()
 	in aux c.body
 

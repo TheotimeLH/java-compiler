@@ -15,10 +15,10 @@ type var = {tp: jtype; adrs: adressse} tbl
 let (+=) (t1, d) t2 = t1 ++ t2, d
 let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
 
-let nlbl = ref 0
 let jnt nt = Jntype { desc = nt ;
 		loc = Lexing.dummy_pos, Lexing.dummy_pos }
 
+let nlbl = ref 0
 let new_lbl () =
   incr nlbl ;
   Format.sprintf "%d" !nlbl

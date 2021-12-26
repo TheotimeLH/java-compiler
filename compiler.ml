@@ -3,17 +3,17 @@ open Ast
 open X86_64
 
 type 'a tbl = (ident, 'a) Hashtbl
-type champ = {tp: jtype; ofs: int}
-type meth = {tp: jtype; lbl: label}
+type obj = {tp: jtype; ofs: int}
 type cls = {params: 'a tbl;
-						champs: champ tbl;
-						mutable cons: label option;
-						meths: meth tbl}
-type adresse = Pile of int | Tas of int*int | Lbl of label | No
+						champs: obj tbl;
+						meths: obj tbl}
+type adresse = Pile of int | This of int
 type var = {tp: jtype; adrs: adressse}
 
 let (+=) (t1, d) t2 = t1 ++ t2, d
 let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
+
+let size c = 8*(Hashtbl.length c.champs)+8
 
 let jnt nt = Jntype { desc = nt ;
 		loc = Lexing.dummy_pos, Lexing.dummy_pos }
@@ -25,7 +25,7 @@ let new_lbl () =
 
 let rec tp_expr cls var e = match e with
 	| Enull -> Jtypenull
-	| Esimple es | Eequal (_, es) -> tp_expr_simple lls var es
+	| Esimple es | Eequal (_, es) -> tp_expr_simple cls var es
 	| Ebinop (Badd,e1,e2) ->
 			if tp_expr cls var e1 = Jint && tp_expr cls var e 2 = Jint
 			then Jint else jnt ( Ntype ("String", []) )
@@ -57,8 +57,8 @@ let rec cp_expr cls var e = match e with
 			cp_acces cls var a += 
 			pushq (reg rax) +++
 			cp_expr cls var e +=
-			popq (reg rdx) +=
-			movq (reg rax) (ind (reg rdx))
+			popq (reg rbx) +=
+			movq (reg rax) (ind (reg rbx))
   | Eunop (Uneg, e) -> cp_expr cls var e += negq (reg rax)
   | Eunop (Unot ,e) -> cp_expr cls var e += notq (reg rax)
 	| Ebinop (Badd, e1, e2) when tp_expr cls var e1 <> Jint
@@ -100,11 +100,20 @@ and cp_expr_simple cls var es = match es with
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
   | ESstr s -> let lbl = new_lbl () in
                movq (label lbl) (reg rax), label lbl ++ string s
-  | ESthis -> movq (ind (~ofs:16) (reg rbp)) (reg rax)
+  | ESthis -> movq (ind (~ofs:16) (reg rbp)) (reg rax), nop
   | ESexpr e -> cp_expr cls var e
   | ESnew (Ntype (id, _), l)  ->
 			let c = Hashtbl.find cls id in
-			
+			let aux cd e =
+				cp_expr cls var e +=
+				pushq (reg rax) +++
+				cd += popq (reg rcx) 
+			in List.fold_left aux (
+			movq (imm (size c)) (reg rdi) ++
+			call "malloc" ++
+			pushq (reg rax) ++
+			call id ++
+			popq (reg rax), nop) l			
   | ESacces_meth (a, l) ->
 			let aux cd e =
 				cp_expr cls var e +=
@@ -117,9 +126,9 @@ and cp_acces cls var a = match a with
 	| Aident id ->
 			begin match (Hashtbl.find var id).adrs with
 				| Pile n -> leaq (ind (~ods:n) (reg rbp)) (reg rax), nop
-				| Tas (n, k) ->
-						movq (ind (~ofs:n) (reg rbp)) (reg rbx) +=
-						leaq (ind (~ofs:k)  (reg rbx)) (reg rax), nop
+				| This n ->
+						movq (inf (~ofs:16) (reg rbp)) (reg rbx) ++
+						leaq (ind (~ofs:n)  (reg rbx)) (reg rax), nop
 				| Lbl s -> movq (imm s) (reg rax), nop
 				| No -> exit 1 end
 	| Achemin (es, id) ->
@@ -129,7 +138,8 @@ and cp_acces cls var a = match a with
 						try let m = Hashtbl.find c.meths id in
 								cp_expr_simple cls var es +=
 								pushq (reg rax) +=
-								call m.lbl +=
+								movq (ind (reg rax)) (reg rbx) +=
+								call (ind (~ofs:m.ofs) (reg rbx)) +=
 								popq (reg rcx)
 						with Not_found ->
 								let ch = Hashtbl.find c.champs id in
@@ -147,8 +157,7 @@ let rec cp_instruc cls var st = match st with
 			cp_expr cls var e +=
 			popq (reg rbx) +=
 			movq (reg rax) (ind (reg rbx))
-	| Idef (jt, id) ->
-		(* A COMPLETER *)
+	| Idef (jt, id) -> 
 	| Idef_init (jt, id, e) ->
 		(* A COMPLETER *)
 	| Iif (e, s1, s2) ->

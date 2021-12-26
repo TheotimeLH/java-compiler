@@ -2,15 +2,15 @@
 open Ast
 open X86_64
 
-type 'a tbl = (string, 'a) Hashtbl
-type champ = {tp: jtype; ofs: int }
+type 'a tbl = (ident, 'a) Hashtbl
+type champ = {tp: jtype; ofs: int}
 type meth = {tp: jtype; lbl: label}
 type cls = {params: 'a tbl;
 						champs: champ tbl;
 						mutable cons: label option;
 						meths: meth tbl}
-type adresse = Pile of int | Tas of int*int | Lbl of label
-type var = {tp: jtype; adrs: adressse} tbl
+type adresse = Pile of int | Tas of int*int | Lbl of label | No
+type var = {tp: jtype; adrs: adressse}
 
 let (+=) (t1, d) t2 = t1 ++ t2, d
 let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
@@ -35,7 +35,7 @@ let rec tp_expr cls var e = match e with
 and tp_expr_simple cls var es = match es with
 	| ESint -> Jint
 	| ESboll -> Jboolean
-	| ESstr -> jstring
+	| ESstr -> jnt ( Ntype ("String", []) )
 	| ESthis -> (Hasstbl.find var "this").tp
 	| ESexpr e -> tp_expr cls var e
 	| ESnew (nt, _) -> jnt nt
@@ -50,7 +50,7 @@ and tp_acces cls var a = match a with
 			in try (Hashtbl.find c.champs id).tp
 			with Not_found -> (Hashtbl.find c.meths id).tp
 
-let rec cp_expr cls vars e = match e with
+let rec cp_expr cls var e = match e with
   | Enull -> nop, nop
   | Esimple es -> cp_expr_simple cls var es
   | Eequal (a, e) ->
@@ -99,18 +99,29 @@ and cp_expr_simple cls var es = match es with
   | ESint n -> movq (imm n) (reg rax), nop
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
   | ESstr s -> let lbl = new_lbl () in
-               movq (label lbl) (reg rax), lbl lbl ++ string s
+               movq (label lbl) (reg rax), label lbl ++ string s
   | ESthis -> movq (ind (~ofs:16) (reg rbp)) (reg rax)
   | ESexpr e -> cp_expr cls var e
   | ESnew (Ntype (id, _), l)  ->
-			(* A COMPLETER *)
+			let c = Hashtbl.find cls id in
+			
   | ESacces_meth (a, l) ->
-			(* A COMPlETER *)
+			let aux cd e =
+				cp_expr cls var e +=
+				pushq (reg rax) +++
+				cd += popq (reg rcx) 
+			in List.fold_left aux (cp_acces cls var a) l
   | ESacces_var a -> cp_acces cls var a
 	
 and cp_acces cls var a = match a with
 	| Aident id ->
-			(* A COMPLETER *)
+			begin match (Hashtbl.find var id).adrs with
+				| Pile n -> leaq (ind (~ods:n) (reg rbp)) (reg rax), nop
+				| Tas (n, k) ->
+						movq (ind (~ofs:n) (reg rbp)) (reg rbx) +=
+						leaq (ind (~ofs:k)  (reg rbx)) (reg rax), nop
+				| Lbl s -> movq (imm s) (reg rax), nop
+				| No -> exit 1 end
 	| Achemin (es, id) ->
 			match tp_expr_simple cls var es with
 				| Jntype { desc = Ntype (nom, _) } ->
@@ -125,8 +136,7 @@ and cp_acces cls var a = match a with
 								cp_expr_simple cls var es +=
 								movq (reg rax) (reg rbx) +=
 								movq (ind (~ods:ch.ofs) (reg rbx)) (reg rax)
-				| _ -> exit 1 in
-			
+				| _ -> exit 1			
 
 let rec cp_instruc cls var st = match st with
 	| Inil -> nop, nop
@@ -162,9 +172,8 @@ let rec cp_instruc cls var st = match st with
 			cp_instruc cls var s +=
 			jmp lbl1 +=
 			label lbl2
-	| Ibloc l -> let loc = Hashtbl.copy var in
-							 List.fold_left (+++) (nop, nop)
-							 (List.map (cp_instruc cls loc) l)
+	| Ibloc l -> List.fold_left (+++) (nop, nop)
+							 (List.map (cp_instruc cls var) l)
 	| Ireturn None -> leave ++ ret, nop
 	| Ireturn (Some e) -> cp_expr cls var e += leave += ret	
 

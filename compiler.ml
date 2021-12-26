@@ -203,9 +203,9 @@ let cp_classe cls c =
 					Hashtbl.replace var prm.nom
 					{ tp = prm.typ.desc ; ofs = !k*8}
 				in List.iter aux2 cs.params ;
-				(label c.nom, nop) +++
+				aux q += label c.nom +++
 				cp_instruc cls (Ibloc cs.body) +=
-				leave += ret +++ aux q 
+				leave += ret
 		| [{desc = Dmeth m}]::q ->
 				Hashtbl.clear var ;
 				let k = ref 2 in
@@ -217,12 +217,14 @@ let cp_classe cls c =
 					Hashtbl.replace var prm.nom
 					{ tp = prm.typ.desc ; ofs = !k*8}
 				in List.iter aux2 m.info.desc.params ;
-				(label (new_lbl ()), nop) +++
+				let lbl = new_lbl () in
+				aux q += label lbl +++
 				cp_instruc cls (Ibloc m.body) +=
-				leave += ret +++ aux q
+				leave += ret
 		| _::q -> aux q
-		| [] -> if !b then (nop, nop)
-						else (label c.nom ++ leave ++ ret, nop)
+		| [] -> if !b then nop
+						else label c.nom ++ leave ++ ret,
+						label c.nom
 	in aux c.body
 	
 let cinit cls c =

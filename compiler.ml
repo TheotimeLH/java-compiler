@@ -7,14 +7,14 @@ type obj = {tp: jtype; ofs: int}
 type cls = {params: 'a tbl;
 						champs: obj tbl;
 						meths: obj tbl}
-type adresse = Pile of int | This of int
-type var = {tp: jtype; adrs: adressse}
 
 let (+=) (t1, d) t2 = t1 ++ t2, d
 let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
 
-let size c = 8*(Hashtbl.length c.champs)+8
+let p = ref 0
+let var = Hashtbl.create 8
 
+let size c = 8*(Hashtbl.length c.champs)+8
 let jnt nt = Jntype { desc = nt ;
 		loc = Lexing.dummy_pos, Lexing.dummy_pos }
 
@@ -23,51 +23,51 @@ let new_lbl () =
   incr nlbl ;
   Format.sprintf "%d" !nlbl
 
-let rec tp_expr cls var e = match e with
+let rec tp_expr cls e = match e with
 	| Enull -> Jtypenull
-	| Esimple es | Eequal (_, es) -> tp_expr_simple cls var es
+	| Esimple es | Eequal (_, es) -> tp_expr_simple cls es
 	| Ebinop (Badd,e1,e2) ->
-			if tp_expr cls var e1 = Jint && tp_expr cls var e 2 = Jint
+			if tp_expr cls e1 = Jint && tp_expr cls e 2 = Jint
 			then Jint else jnt ( Ntype ("String", []) )
 	| Ebinop(Bsub | Bmul | Bdiv | Bmod,_,_)
 	| Eunop (Uneg, _) -> Jint
 	| Eunop _ | Ebinop _ -> Jboolean
-and tp_expr_simple cls var es = match es with
+and tp_expr_simple cls es = match es with
 	| ESint -> Jint
 	| ESboll -> Jboolean
 	| ESstr -> jnt ( Ntype ("String", []) )
 	| ESthis -> (Hasstbl.find var "this").tp
-	| ESexpr e -> tp_expr cls var e
+	| ESexpr e -> tp_expr cls e
 	| ESnew (nt, _) -> jnt nt
-	| ESacces_meth (a, _) -> tp_acces cls var a
-	| ESacces_var a ->  tp_acces cls var a
-and tp_acces cls var a = match a with
+	| ESacces_meth (a, _) -> tp_acces cls a
+	| ESacces_var a ->  tp_acces cls a
+and tp_acces cls a = match a with
 	| Aident id -> (Hashtbl.find var id).tp
 	| Achemin (es, id) ->
-			let c = match tp_expr_simple cls var es with
+			let c = match tp_expr_simple cls es with
 				| Jntype { desc = Ntype (nom, _) } -> Hashtbl.find cls nom
 				| _ -> exit 1
 			in try (Hashtbl.find c.champs id).tp
 			with Not_found -> (Hashtbl.find c.meths id).tp
 
-let rec cp_expr cls var e = match e with
-  | Enull -> nop, nop
-  | Esimple es -> cp_expr_simple cls var es
+let rec cp_expr cls e = match e with
+  | Enull -> movq (imm 0) (reg rax), nop
+  | Esimple es -> cp_expr_simple cls es
   | Eequal (a, e) ->
-			cp_acces cls var a += 
+			cp_acces cls a += 
 			pushq (reg rax) +++
-			cp_expr cls var e +=
+			cp_expr cls e +=
 			popq (reg rbx) +=
 			movq (reg rax) (ind (reg rbx))
-  | Eunop (Uneg, e) -> cp_expr cls var e += negq (reg rax)
-  | Eunop (Unot ,e) -> cp_expr cls var e += notq (reg rax)
-	| Ebinop (Badd, e1, e2) when tp_expr cls var e1 <> Jint
-														|| tp_expr cls var e2 <> Jint ->
+  | Eunop (Uneg, e) -> cp_expr cls e += negq (reg rax)
+  | Eunop (Unot ,e) -> cp_expr cls e += notq (reg rax)
+	| Ebinop (Badd, e1, e2) when tp_expr cls e1 <> Jint
+														|| tp_expr cls e2 <> Jint ->
 		(* A COMPLETER  *)
   | Ebinop (Beq | Bneq | Blt | Ble | Bgt | Bge as op, e1, e2) ->  
-      cp_expr cls var e1 +=
+      cp_expr cls e1 +=
 			pushq (reg rax) +++
-			cp_expr cls var e2 +=
+			cp_expr cls e2 +=
 			popq (reg rdx)
 			cmpq (reg rax) (reg rdx) +=
 			begin match op with
@@ -76,9 +76,9 @@ let rec cp_expr cls var e = match e with
 				| Bgt -> setg | Bge -> setge
 			end (reg rax)
 	| Ebinop (Badd | Bsub | Bmul | Bdiv | Bmod as op, e1 , e2) ->
-			cp_expr cls var e1 +=
+			cp_expr cls e1 +=
 			pushq (reg rax) +++
-			cp_expr cls var e2 +=
+			cp_expr cls e2 +=
 			movq (reg rax) (reg rbx) +=
 			popq (reg rax) +=
 			begin match op with
@@ -89,23 +89,23 @@ let rec cp_expr cls var e = match e with
 				| Bmod -> idivq (reg rbx) ++ movq (reg rdx) (reg rax) end
 	| Ebinop (Band | Bor as op, e1, e2) ->
 			let lbl = new_lbl () in
-			cp_expr cls var e1 +=
+			cp_expr cls e1 +=
 			testq (reg rax) (reg rax) +=
 			(match op with | Band -> je | Bor -> jne) lbl +++
-			cp_expr cls var e2 +=
+			cp_expr cls e2 +=
 			label lbl
 			
-and cp_expr_simple cls var es = match es with
+and cp_expr_simple cls es = match es with
   | ESint n -> movq (imm n) (reg rax), nop
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
   | ESstr s -> let lbl = new_lbl () in
-               movq (label lbl) (reg rax), label lbl ++ string s
+               movq (imm lbl) (reg rax), label lbl ++ string s
   | ESthis -> movq (ind (~ofs:16) (reg rbp)) (reg rax), nop
-  | ESexpr e -> cp_expr cls var e
+  | ESexpr e -> cp_expr cls e
   | ESnew (Ntype (id, _), l)  ->
 			let c = Hashtbl.find cls id in
 			let aux cd e =
-				cp_expr cls var e +=
+				cp_expr cls e +=
 				pushq (reg rax) +++
 				cd += popq (reg rcx) 
 			in List.fold_left aux (
@@ -116,75 +116,78 @@ and cp_expr_simple cls var es = match es with
 			popq (reg rax), nop) l			
   | ESacces_meth (a, l) ->
 			let aux cd e =
-				cp_expr cls var e +=
+				cp_expr cls e +=
 				pushq (reg rax) +++
 				cd += popq (reg rcx) 
-			in List.fold_left aux (cp_acces cls var a) l
-  | ESacces_var a -> cp_acces cls var a
-	
-and cp_acces cls var a = match a with
+			in List.fold_left aux (cp_acces cls a) l
+  | ESacces_var a ->
+			cp_acces cls a +=
+			movq (reg rax) (reg rbx) +=
+			movq (ind (reg rbx)) (reg rax)
+
+and cp_acces cls a = match a with
 	| Aident id ->
-			begin match (Hashtbl.find var id).adrs with
-				| Pile n -> leaq (ind (~ods:n) (reg rbp)) (reg rax), nop
-				| This n ->
-						movq (inf (~ofs:16) (reg rbp)) (reg rbx) ++
-						leaq (ind (~ofs:n)  (reg rbx)) (reg rax), nop
-				| Lbl s -> movq (imm s) (reg rax), nop
-				| No -> exit 1 end
+			let n = Hashtbl.find var id).adrs in
+			leaq (ind (~ofs:n) (reg rbp)) (reg rax), nop
 	| Achemin (es, id) ->
-			match tp_expr_simple cls var es with
+			match tp_expr_simple cls es with
 				| Jntype { desc = Ntype (nom, _) } ->
 						let c = Hashtbl.find cls nom in
 						try let m = Hashtbl.find c.meths id in
-								cp_expr_simple cls var es +=
+								cp_expr_simple cls es +=
 								pushq (reg rax) +=
 								movq (ind (reg rax)) (reg rbx) +=
 								call (ind (~ofs:m.ofs) (reg rbx)) +=
 								popq (reg rcx)
 						with Not_found ->
 								let ch = Hashtbl.find c.champs id in
-								cp_expr_simple cls var es +=
+								cp_expr_simple cls es +=
 								movq (reg rax) (reg rbx) +=
 								movq (ind (~ods:ch.ofs) (reg rbx)) (reg rax)
 				| _ -> exit 1			
 
-let rec cp_instruc cls var st = match st with
+let rec cp_instruc cls st = match st with
 	| Inil -> nop, nop
-	| Isimple es -> cp_expr_simple cls var es
+	| Isimple es -> cp_expr_simple cls es
 	| Iequal (a, e) ->
-			cp_acces cls var a += 
+			cp_acces cls a += 
 			pushq (reg rax) +++
-			cp_expr cls var e +=
+			cp_expr cls e +=
 			popq (reg rbx) +=
 			movq (reg rax) (ind (reg rbx))
-	| Idef (jt, id) -> 
-	| Idef_init (jt, id, e) ->
-		(* A COMPLETER *)
+	| Idef (jt, id) -> incr p ;
+			Hashtbl.replace var id { tp = jt ; ofs = !p } ;
+			pushq $0, nop
+	| Idef_init (jt, id, e) -> incr p ;
+			Hashtbl.replace var id { tp = jt ; ofs = !p } ;
+			cp_expr cls e += pushq (reg rax)
 	| Iif (e, s1, s2) ->
 			let lbl1 = new_lbl () in
 			let lbl2 = new_lbl () in
-			cp_expr cls var e +=
+			cp_expr cls e +=
 			testq (reg rax) (reg rax) +=
 			je lbl2 +++
-			cp_instruc cls var s1 +=
+			cp_instruc cls s1 +=
 			jmp lbl1 +=
 			label lbl2 +++
-			cp_instruc cls var s2 +=
+			cp_instruc cls s2 +=
 			label lbl1
 	| Iwhile (e, s) ->
 			let lbl1 = new_lbl () in
 			let lbl2 = new_lbl () in
 			(label lbl1, nop) +++
-			cp_expr cls var e +=
+			cp_expr cls e +=
 			testq (reg rax) (reg rax) +=
 			je lbl2 +++
-			cp_instruc cls var s +=
+			cp_instruc cls s +=
 			jmp lbl1 +=
 			label lbl2
 	| Ibloc l -> List.fold_left (+++) (nop, nop)
-							 (List.map (cp_instruc cls var) l)
+							 (List.map (cp_instruc cls) l)
 	| Ireturn None -> leave ++ ret, nop
-	| Ireturn (Some e) -> cp_expr cls var e += leave += ret	
+	| Ireturn (Some e) -> cp_expr cls e += leave += ret	
+
+(* -x-x-x-x-x-x-x- *)
 
 let cp_classe cls c =
 	let cinfo = Hashtbl.find cls c in

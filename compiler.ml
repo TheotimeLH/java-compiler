@@ -155,11 +155,11 @@ let rec cp_instruc cls st = match st with
 			cp_expr cls e +=
 			popq (reg rbx) +=
 			movq (reg rax) (ind (reg rbx))
-	| Idef (jt, id) -> incr p ;
-			Hashtbl.replace var id { tp = jt ; ofs = !p } ;
+	| Idef (jt, id) -> decr p ;
+			Hashtbl.replace var id { tp = jt ; ofs = !p*8 } ;
 			pushq $0, nop
-	| Idef_init (jt, id, e) -> incr p ;
-			Hashtbl.replace var id { tp = jt ; ofs = !p } ;
+	| Idef_init (jt, id, e) -> decr p ;
+			Hashtbl.replace var id { tp = jt ; ofs = !p*8 } ;
 			cp_expr cls e += pushq (reg rax)
 	| Iif (e, s1, s2) ->
 			let lbl1 = new_lbl () in
@@ -187,40 +187,63 @@ let rec cp_instruc cls st = match st with
 	| Ireturn None -> leave ++ ret, nop
 	| Ireturn (Some e) -> cp_expr cls e += leave += ret	
 
-(* -x-x-x-x-x-x-x- *)
-
 let cp_classe cls c =
-	let cinfo = Hashtbl.find cls c in
+	let cinfo = Hashtbl.find cls c.nom in
+	let b = ref false in
 	let rec aux d = match d with
 		| [{desc = Dconstr cs}]::q ->
-				let var = Hashtbl.create 8 and k = ref 8 in
-				(* A COMPLETER *)
+				Hashtbl.clear var ;
+				b:=true ;
+				let k = ref 2 in
+				let aux1 id ch = incr k ;
+					Hashtbl.replace var id
+					{ tp = ch.tp ; ofs = !k*8 }
+				in Hashtbl.iter aux1 cls.champs ;
+				let aux2 { desc = prm } = incr k ;
+					Hashtbl.replace var prm.nom
+					{ tp = prm.typ.desc ; ofs = !k*8}
+				in List.iter aux2 cs.params ;
+				(label c.nom, nop) +++
+				cp_instruc cls (Ibloc cs.body) +=
+				leave += ret +++ aux q 
 		| [{desc = Dmeth m}]::q ->
-				let var = Hashtbl.create 8 and k = ref 16 in
-				(* A COMPLETER *)
+				Hashtbl.clear var ;
+				let k = ref 2 in
+				let aux1 id ch = incr k ;
+					Hashtbl.replace var id
+					{ tp = ch.tp ; ofs = !k*8 }
+				in Hashtbl.iter aux1 cls.champs ;
+				let aux2 { desc = prm } = incr k ;
+					Hashtbl.replace var prm.nom
+					{ tp = prm.typ.desc ; ofs = !k*8}
+				in List.iter aux2 m.info.desc.params ;
+				(label (new_lbl ()), nop) +++
+				cp_instruc cls (Ibloc m.body) +=
+				leave += ret +++ aux q
 		| _::q -> aux q
-		| [] -> nop, nop
+		| [] -> if !b then (nop, nop)
+						else (label c.nom ++ leave ++ ret, nop)
 	in aux c.body
 	
 let cinit cls c =
 	let cinfo = match c.extd with
 		| None -> { params = Hashtbl.create 8 ;
 								champs = Hashtbl.create 8 ;
-								meths = Hashtbl.create 8 ; cons = None }
+								meths = Hashtbl.create 8 }
 		| Some { desc = Ntype (id, _) } -> Hashtbl.find cls id
-	in let k = ref 0 in
+	in let a = ref 0 and b = ref 0 in
 	let rec aux d = match d with
 		| [{desc = Dchamp (jt, id) }]::q ->
 				Hashtbl.replace cinfo.champs id
-				{ tp = jt.desc ; ofs = !k*8 } ;
-				incr k ; aux q
-		| [{desc = Dconstr _}]::q ->
-				cinfo.cons = Some (new_lbl ()) ; aux q
+				{ tp = jt.desc ; ofs = !a*8 } ;
+				incr a ; aux q
 		| [{desc = Dmeth {desc = m} }]::q ->
 				let jtp = match m.info.desc.typ with
 					| None -> Jtypenull | Some jt -> jt in
 				Hashtbl.replace cinfo.meths m.info.desc.nom
-				{ tp = jtp ; lbl = new_lbl () } ; aux q
+				{ tp = jtp ; ofs = !b*8 } ;
+				incr b ; aux q
+		| _::q -> aux q
 		| [] -> ()
 	in aux c.body ;
 	Hashtbl.replace cls c.nom cinfo
@@ -235,8 +258,9 @@ let cp_fichier prog =
 	let rec code f = match f with
 		| [{desc = Class c}]::q -> aux q +++ cp_classe cls c
 		| [{desc = Main l}]::q ->
-				cp_instruc cls (Hashtbl.create 8) (Ibloc l) +=
-				movq (imm 0) (reg rax) += ret +++ aux q
+				cp_instruc cls (Ibloc l) +=
+				movq (imm 0) (reg rax) +=
+				ret +++ aux q
 		| _::q -> aux q 
 		| [] -> nop, nop
 	in let t, d = aux prog in

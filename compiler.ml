@@ -3,17 +3,17 @@ open Ast
 open X86_64
 
 type 'a tbl = (ident, 'a) Hashtbl
-type obj = {tp: jtype; ofs: int}
+type var = {tp: jtype; ofs: int}
+type meth = {tp: jtype; lbl: label}
 type cls = {params: 'a tbl;
-						champs: obj tbl;
-						meths: obj tbl}
+						champs: var tbl;
+						meths: meth tbl}
 
 let (+=) (t1, d) t2 = t1 ++ t2, d
 let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
 
 let p = ref 0
 let var = Hashtbl.create 8
-
 let size c = 8*(Hashtbl.length c.champs)+8
 let jnt nt = Jntype { desc = nt ;
 		loc = Lexing.dummy_pos, Lexing.dummy_pos }
@@ -98,7 +98,7 @@ let rec cp_expr cls e = match e with
 and cp_expr_simple cls es = match es with
   | ESint n -> movq (imm n) (reg rax), nop
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
-  | ESstr s -> let lbl = new_lbl () in
+  | ESstr s -> let lbl = new_lbl () ^ "string" in
                movq (imm lbl) (reg rax), label lbl ++ string s
   | ESthis -> movq (ind (~ofs:16) (reg rbp)) (reg rax), nop
   | ESexpr e -> cp_expr cls e

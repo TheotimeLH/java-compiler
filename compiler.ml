@@ -2,11 +2,12 @@
 open Ast
 open X86_64
 
-type 'a tbl = (ident, 'a) Hashtbl
-type var = {tp: jtype; ofs: int}
+type 'a tbl = (ident, 'a) Hashtbl.t
+type var = {tp: jtype, ofs: int}
+type champ = {tp: jtype; ofs: int}
 type meth = {tp: jtype; lbl: label}
-type cls = {params: 'a tbl;
-						champs: var tbl;
+type cls = {mutable cons: label;
+						champs: champ tbl;
 						meths: meth tbl}
 
 let (+=) (t1, d) t2 = t1 ++ t2, d
@@ -15,24 +16,27 @@ let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2
 let p = ref 0
 let var = Hashtbl.create 8
 let size c = 8*(Hashtbl.length c.champs)+8
-let jnt nt = Jntype { desc = nt ;
-		loc = Lexing.dummy_pos, Lexing.dummy_pos }
+
+let dp = Lexing.dummy_pos
+let jnt nt = Jntype { desc = nt ; loc = dp, dp }
+let this id = { loc = dp, dp ; desc = Achemin
+		({ desc =  ESthis ; loc = dp, dp }, id)  }
 
 let nlbl = ref 0
 let new_lbl () =
   incr nlbl ;
   Format.sprintf "%d" !nlbl
 
-let rec tp_expr cls e = match e with
+let rec tp_expr cls e = match e.desc with
 	| Enull -> Jtypenull
 	| Esimple es | Eequal (_, es) -> tp_expr_simple cls es
-	| Ebinop (Badd,e1,e2) ->
+	| Ebinop (Badd, e1, e2) ->
 			if tp_expr cls e1 = Jint && tp_expr cls e 2 = Jint
 			then Jint else jnt ( Ntype ("String", []) )
-	| Ebinop(Bsub | Bmul | Bdiv | Bmod,_,_)
+	| Ebinop(Bsub | Bmul | Bdiv | Bmod, _, _)
 	| Eunop (Uneg, _) -> Jint
 	| Eunop _ | Ebinop _ -> Jboolean
-and tp_expr_simple cls es = match es with
+and tp_expr_simple cls es = match es.desc with
 	| ESint -> Jint
 	| ESboll -> Jboolean
 	| ESstr -> jnt ( Ntype ("String", []) )
@@ -41,8 +45,10 @@ and tp_expr_simple cls es = match es with
 	| ESnew (nt, _) -> jnt nt
 	| ESacces_meth (a, _) -> tp_acces cls a
 	| ESacces_var a ->  tp_acces cls a
-and tp_acces cls a = match a with
-	| Aident id -> (Hashtbl.find var id).tp
+and tp_acces cls a = match a.desc with
+	| Aident id -> 
+			try (Hashtbl.find var id).tp
+			with Not_found -> tp_acces cls (this id)
 	| Achemin (es, id) ->
 			let c = match tp_expr_simple cls es with
 				| Jntype { desc = Ntype (nom, _) } -> Hashtbl.find cls nom
@@ -50,17 +56,17 @@ and tp_acces cls a = match a with
 			in try (Hashtbl.find c.champs id).tp
 			with Not_found -> (Hashtbl.find c.meths id).tp
 
-let rec cp_expr cls e = match e with
+let rec cp_expr cls e = match e.desc with
   | Enull -> movq (imm 0) (reg rax), nop
   | Esimple es -> cp_expr_simple cls es
-  | Eequal (a, e) ->
+  | Eequal (a, e0) ->
 			cp_acces cls a += 
 			pushq (reg rax) +++
-			cp_expr cls e +=
+			cp_expr cls e0 +=
 			popq (reg rbx) +=
 			movq (reg rax) (ind (reg rbx))
-  | Eunop (Uneg, e) -> cp_expr cls e += negq (reg rax)
-  | Eunop (Unot ,e) -> cp_expr cls e += notq (reg rax)
+  | Eunop (Uneg, e0) -> cp_expr cls e0 += negq (reg rax)
+  | Eunop (Unot ,e0) -> cp_expr cls e0 += notq (reg rax)
 	| Ebinop (Badd, e1, e2) when tp_expr cls e1 <> Jint
 														|| tp_expr cls e2 <> Jint ->
 		(* A COMPLETER  *)
@@ -95,7 +101,7 @@ let rec cp_expr cls e = match e with
 			cp_expr cls e2 +=
 			label lbl
 			
-and cp_expr_simple cls es = match es with
+and cp_expr_simple cls es = match es.desc with
   | ESint n -> movq (imm n) (reg rax), nop
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
   | ESstr s -> let lbl = new_lbl () ^ "string" in
@@ -112,7 +118,7 @@ and cp_expr_simple cls es = match es with
 			movq (imm (size c)) (reg rdi) ++
 			call "malloc" ++
 			pushq (reg rax) ++
-			call id ++
+			call c.cons ++
 			popq (reg rax), nop) l			
   | ESacces_meth (a, l) ->
 			let aux cd e =
@@ -125,10 +131,11 @@ and cp_expr_simple cls es = match es with
 			movq (reg rax) (reg rbx) +=
 			movq (ind (reg rbx)) (reg rax)
 
-and cp_acces cls a = match a with
+and cp_acces cls a = match a.desc with
 	| Aident id ->
-			let n = Hashtbl.find var id).adrs in
+			try let n = (Hashtbl.find var id).adrs in
 			leaq (ind (~ofs:n) (reg rbp)) (reg rax), nop
+			with Not_found -> cp_acces cls (this id)
 	| Achemin (es, id) ->
 			match tp_expr_simple cls es with
 				| Jntype { desc = Ntype (nom, _) } ->
@@ -137,16 +144,16 @@ and cp_acces cls a = match a with
 								cp_expr_simple cls es +=
 								pushq (reg rax) +=
 								movq (ind (reg rax)) (reg rbx) +=
-								call (ind (~ofs:m.ofs) (reg rbx)) +=
+								call m.lbl +=
 								popq (reg rcx)
 						with Not_found ->
 								let ch = Hashtbl.find c.champs id in
 								cp_expr_simple cls es +=
 								movq (reg rax) (reg rbx) +=
-								movq (ind (~ods:ch.ofs) (reg rbx)) (reg rax)
+								leaq (ind (~ods:ch.ofs) (reg rbx)) (reg rax)
 				| _ -> exit 1			
 
-let rec cp_instruc cls st = match st with
+let rec cp_instruc cls st = match st.desc with
 	| Inil -> nop, nop
 	| Isimple es -> cp_expr_simple cls es
 	| Iequal (a, e) ->
@@ -162,8 +169,9 @@ let rec cp_instruc cls st = match st with
 			Hashtbl.replace var id { tp = jt ; ofs = !p*8 } ;
 			cp_expr cls e += pushq (reg rax)
 	| Iif (e, s1, s2) ->
-			let lbl1 = new_lbl () in
-			let lbl2 = new_lbl () in
+			let n = new_lbl () in
+			let lbl1 = n^"if" in
+			let lbl2 = n^"else" in 
 			cp_expr cls e +=
 			testq (reg rax) (reg rax) +=
 			je lbl2 +++
@@ -173,8 +181,9 @@ let rec cp_instruc cls st = match st with
 			cp_instruc cls s2 +=
 			label lbl1
 	| Iwhile (e, s) ->
-			let lbl1 = new_lbl () in
-			let lbl2 = new_lbl () in
+			let n = new_lbl () in
+			let lbl1 = n^"deb" in
+			let lbl2 = n^"fin" in
 			(label lbl1, nop) +++
 			cp_expr cls e +=
 			testq (reg rax) (reg rax) +=
@@ -189,63 +198,55 @@ let rec cp_instruc cls st = match st with
 
 let cp_classe cls c =
 	let cinfo = Hashtbl.find cls c.nom in
-	let b = ref false in
 	let rec aux d = match d with
 		| [{desc = Dconstr cs}]::q ->
 				Hashtbl.clear var ;
-				b:=true ;
 				let k = ref 2 in
-				let aux1 id ch = incr k ;
-					Hashtbl.replace var id
-					{ tp = ch.tp ; ofs = !k*8 }
-				in Hashtbl.iter aux1 cls.champs ;
-				let aux2 { desc = prm } = incr k ;
+				let aux { desc = prm } = incr k ;
 					Hashtbl.replace var prm.nom
 					{ tp = prm.typ.desc ; ofs = !k*8}
-				in List.iter aux2 cs.params ;
-				aux q += label c.nom +++
+				in List.iter aux cs.params ;
+				aux q += label cinfo.cons +++
 				cp_instruc cls (Ibloc cs.body) +=
 				leave += ret
 		| [{desc = Dmeth m}]::q ->
 				Hashtbl.clear var ;
 				let k = ref 2 in
-				let aux1 id ch = incr k ;
-					Hashtbl.replace var id
-					{ tp = ch.tp ; ofs = !k*8 }
-				in Hashtbl.iter aux1 cls.champs ;
-				let aux2 { desc = prm } = incr k ;
+				let aux { desc = prm } = incr k ;
 					Hashtbl.replace var prm.nom
 					{ tp = prm.typ.desc ; ofs = !k*8}
-				in List.iter aux2 m.info.desc.params ;
-				let lbl = new_lbl () in
-				aux q += label lbl +++
+				in List.iter aux m.info.desc.params ;
+				let mi = Hashtbl.find cinfo.meths m.info.desc.nom in
+				aux q += label mi.lbl +++
 				cp_instruc cls (Ibloc m.body) +=
 				leave += ret
 		| _::q -> aux q
-		| [] -> if !b then nop
-						else label c.nom ++ leave ++ ret,
-						label c.nom
+		| [] -> nop
 	in aux c.body
 	
 let cinit cls c =
 	let cinfo = match c.extd with
-		| None -> { params = Hashtbl.create 8 ;
+		| None -> { cons = "0new" ;
 								champs = Hashtbl.create 8 ;
 								meths = Hashtbl.create 8 }
-		| Some { desc = Ntype (id, _) } -> Hashtbl.find cls id
-	in let a = ref 0 and b = ref 0 in
+		| Some { desc = Ntype (id, _) } ->
+				let ext = Hashtbl.find cls id in
+				{ cons = "0new" ;
+					champs = Hashtbl.copy ext.champs ;
+					meths = Hashtbl.create ext.meths }
+	in let k = ref 0 and n = new_lbl () in
 	let rec aux d = match d with
 		| [{desc = Dchamp (jt, id) }]::q ->
 				Hashtbl.replace cinfo.champs id
-				{ tp = jt.desc ; ofs = !a*8 } ;
-				incr a ; aux q
+				{ tp = jt.desc ; ofs = !k*8 } ;
+				incr k ; aux q
 		| [{desc = Dmeth {desc = m} }]::q ->
 				let jtp = match m.info.desc.typ with
 					| None -> Jtypenull | Some jt -> jt in
 				Hashtbl.replace cinfo.meths m.info.desc.nom
-				{ tp = jtp ; ofs = !b*8 } ;
+				{ tp = jtp ; lbl = n^c.nom^"_"^m.info.desc.nom } ;
 				incr b ; aux q
-		| _::q -> aux q
+		| _::q -> cinfo.cons = n^c.nom^"_new" ; aux q
 		| [] -> ()
 	in aux c.body ;
 	Hashtbl.replace cls c.nom cinfo
@@ -269,5 +270,13 @@ let cp_fichier prog =
 	{ text =
 			globl "Main" ++
 			label "Main" ++
-			t ;
+			t ++ 
+			label "0new" ++
+			leave ++ ret ++
+			label "0str" ++
+			(* A COMPLETER *)
+			label "0concat" ++
+			(* A COMPLETER *)
+			label "0print" 
+			(* A COMPLETER *) ;
 		data = d }

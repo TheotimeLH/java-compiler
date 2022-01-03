@@ -2,6 +2,9 @@
 open Ast
 open X86_64
 
+exception System
+exception System_out
+
 type 'a tbl = (ident, 'a) Hashtbl.t
 type var = {tp: jtype, ofs: int}
 type champ = {tp: jtype; ofs: int}
@@ -47,14 +50,18 @@ and tp_expr_simple cls es = match es.desc with
 	| ESacces_var a ->  tp_acces cls a
 and tp_acces cls a = match a.desc with
 	| Aident id -> 
+			if id = "System" then raise System ;
 			try (Hashtbl.find var id).tp
 			with Not_found -> tp_acces cls (this id)
 	| Achemin (es, id) ->
-			let c = match tp_expr_simple cls es with
-				| Jntype { desc = Ntype (nom, _) } -> Hashtbl.find cls nom
+			match tp_expr_simple cls es with
+				| Jntype { desc = Ntype (nom, _) } ->
+						let c = Hashtbl.find cls nom in
+						try (Hashtbl.find c.champs id).tp
+						with Not_found -> (Hashtbl.find c.meths id).tp
+				| exception System -> raise System_out
+				| exception System_out -> Jtypenull
 				| _ -> exit 1
-			in try (Hashtbl.find c.champs id).tp
-			with Not_found -> (Hashtbl.find c.meths id).tp
 
 let rec cp_expr cls e = match e.desc with
   | Enull -> movq (imm 0) (reg rax), nop
@@ -133,6 +140,7 @@ and cp_expr_simple cls es = match es.desc with
 
 and cp_acces cls a = match a.desc with
 	| Aident id ->
+			if id == "System" then raise System ;
 			try let n = (Hashtbl.find var id).adrs in
 			leaq (ind (~ofs:n) (reg rbp)) (reg rax), nop
 			with Not_found -> cp_acces cls (this id)
@@ -151,6 +159,11 @@ and cp_acces cls a = match a.desc with
 								cp_expr_simple cls es +=
 								movq (reg rax) (reg rbx) +=
 								leaq (ind (~ods:ch.ofs) (reg rbx)) (reg rax)
+				| exception System -> raise System_out
+				| exception System_out ->
+						movq (ind (reg rsp)) (reg rdi) ++
+						movq (imm O) (reg rax)
+						call "printf"
 				| _ -> exit 1			
 
 let rec cp_instruc cls st = match st.desc with

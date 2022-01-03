@@ -76,7 +76,19 @@ let rec cp_expr cls e = match e.desc with
   | Eunop (Unot ,e0) -> cp_expr cls e0 += notq (reg rax)
 	| Ebinop (Badd, e1, e2) when tp_expr cls e1 <> Jint
 														|| tp_expr cls e2 <> Jint ->
-		(* A COMPLETER  *)
+			cp_expr cls e1 +=
+			(	if tp_expr cls e1 <> Jint then nop
+				else
+					movq (reg rax) (reg rdi) ++
+					call "0convert" ) +=
+			movq (reg rax) (reg rsi) ++
+			cp_expr cls e2 +=
+			movq (reg rax) (reg rdi) +=
+			( if tp_expr cls e2 <> Jint then nop
+				else
+					call "0convert" ++
+					movq (reg rax) (reg rdi) ) +=
+			call "0concat"
   | Ebinop (Beq | Bneq | Blt | Ble | Bgt | Bge as op, e1, e2) ->  
       cp_expr cls e1 +=
 			pushq (reg rax) +++
@@ -163,7 +175,7 @@ and cp_acces cls a = match a.desc with
 				| exception System_out ->
 						movq (ind (reg rsp)) (reg rdi) ++
 						movq (imm O) (reg rax)
-						call "printf"
+						call "printf", nop
 				| _ -> exit 1			
 
 let rec cp_instruc cls st = match st.desc with
@@ -286,10 +298,10 @@ let cp_fichier prog =
 			t ++ 
 			label "0new" ++
 			leave ++ ret ++
-			label "0str" ++
+			label "0convert" ++
 			(* A COMPLETER *)
 			label "0concat" ++
 			(* A COMPLETER *)
-			label "0print" 
+			label "0equals" 
 			(* A COMPLETER *) ;
 		data = d }

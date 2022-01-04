@@ -84,7 +84,7 @@ let rec cp_expr cls e = match e.desc with
 					movq (ilab "Convert_0") (reg rdi) ++
 					movq (imm 0) (reg rax) ++
 					call "sprintf" ) +=
-			pushq (reg rax) ++
+			pushq (reg rax) +++
 			cp_expr cls e2 +=
 			( if tp_expr cls e2 <> Jint then nop
 				else
@@ -309,12 +309,10 @@ let cp_fichier prog =
 			leave ++ ret ++
 			label "String_equals_0" 
 			(* A COMPLETER *) ;
-		data =
-			d ++
+		data = d ++
 			label "Convert_0" ++
 			string "%d" ++
 			label "Concat_0" ++
 			string "%s%s" ++
 			label "Print_0" ++
-			string "%s\n"
-			}
+			string "%s\n"	}

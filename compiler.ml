@@ -28,7 +28,7 @@ let this id = { loc = dp, dp ; desc = Achemin
 let nlbl = ref 0
 let new_lbl () =
   incr nlbl ;
-  Format.sprintf "%d" !nlbl
+  Format.sprintf "_%d" !nlbl
 
 let rec tp_expr cls e = match e.desc with
 	| Enull -> Jtypenull
@@ -80,16 +80,23 @@ let rec cp_expr cls e = match e.desc with
 			cp_expr cls e1 +=
 			(	if tp_expr cls e1 <> Jint then nop
 				else
-					movq (reg rax) (reg rdi) ++
-					call "0convert" ) +=
-			movq (reg rax) (reg rsi) ++
+					movq (reg rax) (reg rsi) ++
+					movq (ilab "Convert_0") (reg rdi) ++
+					movq (imm 0) (reg rax) ++
+					call "sprintf" ) +=
+			pushq (reg rax) ++
 			cp_expr cls e2 +=
-			movq (reg rax) (reg rdi) +=
 			( if tp_expr cls e2 <> Jint then nop
 				else
-					call "0convert" ++
-					movq (reg rax) (reg rdi) ) +=
-			call "0concat"
+					movq (reg rax) (reg rsi) ++
+					movq (ilab "Convert_0") (reg rdi) ++
+					movq (imm 0) (reg rax) ++
+					call "sprintf" ) +=
+			popq rdx +=
+			movq (reg rax) (reg rsi) +=
+			movq (ilab "Concat_0") (reg rdi) +=
+			movq (imm 0) (reg rax) +=
+			call "sprintf"
   | Ebinop (e1, (Beq | Bneq | Blt | Ble | Bgt | Bge as op), e2) ->  
       cp_expr cls e1 +=
 			pushq (reg rax) +++
@@ -124,7 +131,7 @@ let rec cp_expr cls e = match e.desc with
 and cp_expr_simple cls es = match es.desc with
   | ESint n -> movq (imm n) (reg rax), nop
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
-  | ESstr s -> let lbl = new_lbl () ^ "string" in
+  | ESstr s -> let lbl = "String" ^ new_lbl () in
                movq (imm lbl) (reg rax), label lbl ++ string s
   | ESthis -> movq (ind ~ofs:16 rbp) (reg rax), nop
   | ESexpr e -> cp_expr cls e
@@ -174,8 +181,9 @@ and cp_acces cls a = match a.desc with
 								leaq (ind ~ods:ch.ofs rbx) (reg rax) end
 				| exception System -> raise System_out
 				| exception System_out ->
-						movq (ind (reg rsp)) (reg rdi) ++
-						movq (imm O) (reg rax)
+						movq (ind (reg rsp)) (reg rsi) ++
+						movq (imm (ilab "Print_0")) (reg rdi) ++
+						movq (imm O) (reg rax) ++
 						call "printf", nop
 				| _ -> exit 1			
 
@@ -196,8 +204,8 @@ let rec cp_instruc cls st = match st.desc with
 			cp_expr cls e += pushq (reg rax)
 	| Iif (e, s1, s2) ->
 			let n = new_lbl () in
-			let lbl1 = n^"if" in
-			let lbl2 = n^"else" in 
+			let lbl1 = "If"^n in
+			let lbl2 = "Else"^n in 
 			cp_expr cls e +=
 			testq (reg rax) (reg rax) +=
 			je lbl2 +++
@@ -208,8 +216,8 @@ let rec cp_instruc cls st = match st.desc with
 			label lbl1
 	| Iwhile (e, s) ->
 			let n = new_lbl () in
-			let lbl1 = n^"deb" in
-			let lbl2 = n^"fin" in
+			let lbl1 = "Deb"^n in
+			let lbl2 = "Fin"^n in
 			(label lbl1, nop) +++
 			cp_expr cls e +=
 			testq (reg rax) (reg rax) +=
@@ -252,12 +260,12 @@ let cp_classe cls c =
 	
 let cinit cls c =
 	let cinfo = match c.extd with
-		| None -> { cons = "0new" ;
+		| None -> { cons = "New_0" ;
 								champs = Hashtbl.create 8 ;
 								meths = Hashtbl.create 8 }
 		| Some { desc = Ntype (id, _) } ->
 				let ext = Hashtbl.find cls id in
-				{ cons = "0new" ;
+				{ cons = "New_0" ;
 					champs = Hashtbl.copy ext.champs ;
 					meths = Hashtbl.create ext.meths }
 	in let k = ref 0 and n = new_lbl () in
@@ -270,9 +278,9 @@ let cinit cls c =
 				let jtp = match m.info.desc.typ with
 					| None -> Jtypenull | Some jt -> jt in
 				Hashtbl.replace cinfo.meths m.info.desc.nom
-				{ tp = jtp ; lbl = n^c.nom^"_"^m.info.desc.nom } ;
+				{ tp = jtp ; lbl = c.nom^"_"^m.info.desc.nom^n } ;
 				incr b ; aux q
-		| _::q -> cinfo.cons = n^c.nom^"_new" ; aux q
+		| _::q -> cinfo.cons = c.nom^"_new"^n ; aux q
 		| [] -> ()
 	in aux c.body ;
 	Hashtbl.replace cls c.nom cinfo
@@ -297,12 +305,16 @@ let cp_fichier prog =
 			globl "Main" ++
 			label "Main" ++
 			t ++ 
-			label "0new" ++
+			label "New_0" ++
 			leave ++ ret ++
-			label "0convert" ++
-			(* A COMPLETER *)
-			label "0concat" ++
-			(* A COMPLETER *)
-			label "0equals" 
+			label "String_equals_0" 
 			(* A COMPLETER *) ;
-		data = d }
+		data =
+			d ++
+			label "Convert_0" ++
+			string "%d" ++
+			label "Concat_0" ++
+			string "%s%s" ++
+			label "Print_0" ++
+			string "%s\n"
+			}

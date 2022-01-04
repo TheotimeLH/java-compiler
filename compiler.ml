@@ -72,7 +72,7 @@ let rec cp_expr cls e = match e.desc with
 			pushq (reg rax) +++
 			cp_expr cls e0 +=
 			popq rbx +=
-			movq (reg rax) (ind (reg rbx))
+			movq (reg rax) (ind rbx)
   | Eunop (Uneg, e0) -> cp_expr cls e0 += negq (reg rax)
   | Eunop (Unot ,e0) -> cp_expr cls e0 += notq (reg rax)
 	| Ebinop (e1, Badd, e2) when tp_expr cls e1 <> Jint
@@ -156,7 +156,7 @@ and cp_expr_simple cls es = match es.desc with
   | ESacces_var a ->
 			cp_acces cls a +=
 			movq (reg rax) (reg rbx) +=
-			movq (ind (reg rbx)) (reg rax)
+			movq (ind rbx) (reg rax)
 
 and cp_acces cls a = match a.desc with
 	| Aident id ->
@@ -171,7 +171,7 @@ and cp_acces cls a = match a.desc with
 						begin try let m = Hashtbl.find c.meths id in
 								cp_expr_simple cls es +=
 								pushq (reg rax) +=
-								movq (ind (reg rax)) (reg rbx) +=
+								movq (ind rax) (reg rbx) +=
 								call m.lbl +=
 								popq rcx
 						with Not_found ->
@@ -181,7 +181,7 @@ and cp_acces cls a = match a.desc with
 								leaq (ind ~ods:ch.ofs rbx) (reg rax) end
 				| exception System -> raise System_out
 				| exception System_out ->
-						movq (ind (reg rsp)) (reg rsi) ++
+						movq (ind rsp) (reg rsi) ++
 						movq (imm (ilab "Print_0")) (reg rdi) ++
 						movq (imm O) (reg rax) ++
 						call "printf", nop
@@ -195,7 +195,7 @@ let rec cp_instruc cls st = match st.desc with
 			pushq (reg rax) +++
 			cp_expr cls e +=
 			popq rbx +=
-			movq (reg rax) (ind (reg rbx))
+			movq (reg rax) (ind rbx)
 	| Idef (jt, id) -> decr p ;
 			Hashtbl.replace var id { tp = jt ; ofs = !p*8 } ;
 			pushq $0, nop

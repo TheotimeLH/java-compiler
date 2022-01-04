@@ -32,7 +32,8 @@ let new_lbl () =
 
 let rec tp_expr cls e = match e.desc with
 	| Enull -> Jtypenull
-	| (Esimple es) | Eequal (_, es) -> tp_expr_simple cls es
+	| Esimple es -> tp_expr_simple cls es
+	| Eequal (_, e0) -> tp_exp cls e0
 	| Ebinop (Badd, e1, e2) ->
 			if tp_expr cls e1 = Jint && tp_expr cls e 2 = Jint
 			then Jint else jnt ( Ntype ("String", []) )

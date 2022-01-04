@@ -52,8 +52,8 @@ and tp_expr_simple cls es = match es.desc with
 and tp_acces cls a = match a.desc with
 	| Aident id -> 
 			if id = "System" then raise System ;
-			try (Hashtbl.find var id).tp
-			with Not_found -> tp_acces cls (this id)
+			begin try (Hashtbl.find var id).tp
+			with Not_found -> tp_acces cls (this id) end
 	| Achemin (es, id) ->
 			match tp_expr_simple cls es with
 				| Jntype { desc = Ntype (nom, _) } ->
@@ -154,14 +154,14 @@ and cp_expr_simple cls es = match es.desc with
 and cp_acces cls a = match a.desc with
 	| Aident id ->
 			if id == "System" then raise System ;
-			try let n = (Hashtbl.find var id).adrs in
+			begin try let n = (Hashtbl.find var id).adrs in
 			leaq (ind ~ofs:n rbp) (reg rax), nop
-			with Not_found -> cp_acces cls (this id)
+			with Not_found -> cp_acces cls (this id) end
 	| Achemin (es, id) ->
 			match tp_expr_simple cls es with
 				| Jntype { desc = Ntype (nom, _) } ->
 						let c = Hashtbl.find cls nom in
-						try let m = Hashtbl.find c.meths id in
+						begin try let m = Hashtbl.find c.meths id in
 								cp_expr_simple cls es +=
 								pushq (reg rax) +=
 								movq (ind (reg rax)) (reg rbx) +=
@@ -171,7 +171,7 @@ and cp_acces cls a = match a.desc with
 								let ch = Hashtbl.find c.champs id in
 								cp_expr_simple cls es +=
 								movq (reg rax) (reg rbx) +=
-								leaq (ind ~ods:ch.ofs rbx) (reg rax)
+								leaq (ind ~ods:ch.ofs rbx) (reg rax) end
 				| exception System -> raise System_out
 				| exception System_out ->
 						movq (ind (reg rsp)) (reg rdi) ++

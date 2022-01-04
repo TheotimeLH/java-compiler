@@ -21,7 +21,7 @@ let var = Hashtbl.create 8
 let size c = 8*(Hashtbl.length c.champs)+8
 
 let dp = Lexing.dummy_pos
-let jnt nt = Jntype { desc = nt.desc ; loc = dp, dp }
+let jnt nt = Jntype { desc = nt ; loc = dp, dp }
 let this id = { loc = dp, dp ; desc = Achemin
 		({ desc =  ESthis ; loc = dp, dp }, id)  }
 
@@ -46,7 +46,7 @@ and tp_expr_simple cls es = match es.desc with
 	| ESstr _ -> jnt ( Ntype ("String", []) )
 	| ESthis -> (Hashtbl.find var "this").tp
 	| ESexpr e -> tp_expr cls e
-	| ESnew (nt, _) -> jnt nt
+	| ESnew (nt, _) -> jnt nt.desc
 	| ESacces_meth (a, _) -> tp_acces cls a
 	| ESacces_var a ->  tp_acces cls a
 and tp_acces cls a = match a.desc with

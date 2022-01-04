@@ -58,8 +58,8 @@ and tp_acces cls a = match a.desc with
 			match tp_expr_simple cls es with
 				| Jntype { desc = Ntype (nom, _) } ->
 						let c = Hashtbl.find cls nom in
-						try (Hashtbl.find c.champs id).tp
-						with Not_found -> (Hashtbl.find c.meths id).tp
+						begin try (Hashtbl.find c.champs id).tp
+						with Not_found -> (Hashtbl.find c.meths id).tp end
 				| exception System -> raise System_out
 				| exception System_out -> Jtypenull
 				| _ -> exit 1

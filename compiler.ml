@@ -6,7 +6,7 @@ exception System
 exception System_out
 
 type 'a tbl = (ident, 'a) Hashtbl.t
-type var = {tp: jtype, ofs: int}
+type var = {tp: jtype; ofs: int}
 type champ = {tp: jtype; ofs: int}
 type meth = {tp: jtype; lbl: label}
 type cls = {mutable cons: label;

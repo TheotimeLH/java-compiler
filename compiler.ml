@@ -125,7 +125,7 @@ and cp_expr_simple cls es = match es.desc with
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
   | ESstr s -> let lbl = new_lbl () ^ "string" in
                movq (imm lbl) (reg rax), label lbl ++ string s
-  | ESthis -> movq (ind (~ofs:16) (reg rbp)) (reg rax), nop
+  | ESthis -> movq (ind ~ofs:16 rbp) (reg rax), nop
   | ESexpr e -> cp_expr cls e
   | ESnew (Ntype (id, _), l)  ->
 			let c = Hashtbl.find cls id in
@@ -154,7 +154,7 @@ and cp_acces cls a = match a.desc with
 	| Aident id ->
 			if id == "System" then raise System ;
 			try let n = (Hashtbl.find var id).adrs in
-			leaq (ind (~ofs:n) (reg rbp)) (reg rax), nop
+			leaq (ind ~ofs:n rbp) (reg rax), nop
 			with Not_found -> cp_acces cls (this id)
 	| Achemin (es, id) ->
 			match tp_expr_simple cls es with
@@ -170,7 +170,7 @@ and cp_acces cls a = match a.desc with
 								let ch = Hashtbl.find c.champs id in
 								cp_expr_simple cls es +=
 								movq (reg rax) (reg rbx) +=
-								leaq (ind (~ods:ch.ofs) (reg rbx)) (reg rax)
+								leaq (ind ~ods:ch.ofs rbx) (reg rax)
 				| exception System -> raise System_out
 				| exception System_out ->
 						movq (ind (reg rsp)) (reg rdi) ++

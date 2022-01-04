@@ -71,7 +71,7 @@ let rec cp_expr cls e = match e.desc with
 			cp_acces cls a += 
 			pushq (reg rax) +++
 			cp_expr cls e0 +=
-			popq (reg rbx) +=
+			popq rbx +=
 			movq (reg rax) (ind (reg rbx))
   | Eunop (Uneg, e0) -> cp_expr cls e0 += negq (reg rax)
   | Eunop (Unot ,e0) -> cp_expr cls e0 += notq (reg rax)
@@ -94,7 +94,7 @@ let rec cp_expr cls e = match e.desc with
       cp_expr cls e1 +=
 			pushq (reg rax) +++
 			cp_expr cls e2 +=
-			popq (reg rdx)
+			popq rdx +=
 			cmpq (reg rax) (reg rdx) +=
 			begin match op with
 				| Beq -> sete | Bneq -> setne
@@ -106,7 +106,7 @@ let rec cp_expr cls e = match e.desc with
 			pushq (reg rax) +++
 			cp_expr cls e2 +=
 			movq (reg rax) (reg rbx) +=
-			popq (reg rax) +=
+			popq rax +=
 			begin match op with
 				| Badd -> addq (reg rbx) (reg rax)
 				| Bsub -> subq (reg rbx) (reg rax)
@@ -133,18 +133,18 @@ and cp_expr_simple cls es = match es.desc with
 			let aux cd e =
 				cp_expr cls e +=
 				pushq (reg rax) +++
-				cd += popq (reg rcx) 
+				cd += popq rcx
 			in List.fold_left aux (
 			movq (imm (size c)) (reg rdi) ++
 			call "malloc" ++
 			pushq (reg rax) ++
 			call c.cons ++
-			popq (reg rax), nop) l			
+			popq rax, nop) l			
   | ESacces_meth (a, l) ->
 			let aux cd e =
 				cp_expr cls e +=
 				pushq (reg rax) +++
-				cd += popq (reg rcx) 
+				cd += popq rcx
 			in List.fold_left aux (cp_acces cls a) l
   | ESacces_var a ->
 			cp_acces cls a +=
@@ -166,7 +166,7 @@ and cp_acces cls a = match a.desc with
 								pushq (reg rax) +=
 								movq (ind (reg rax)) (reg rbx) +=
 								call m.lbl +=
-								popq (reg rcx)
+								popq rcx
 						with Not_found ->
 								let ch = Hashtbl.find c.champs id in
 								cp_expr_simple cls es +=

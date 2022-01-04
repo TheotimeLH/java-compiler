@@ -34,10 +34,10 @@ let rec tp_expr cls e = match e.desc with
 	| Enull -> Jtypenull
 	| Esimple es -> tp_expr_simple cls es
 	| Eequal (_, e0) -> tp_exp cls e0
-	| Ebinop (Badd, e1, e2) ->
+	| Ebinop (e1, Badd, e2) ->
 			if tp_expr cls e1 = Jint && tp_expr cls e 2 = Jint
 			then Jint else jnt ( Ntype ("String", []) )
-	| Ebinop (Bsub | Bmul | Bdiv | Bmod, _, _)
+	| Ebinop (_, Bsub | Bmul | Bdiv | Bmod, _)
 	| Eunop (Uneg, _) -> Jint
 	| Eunop _ | Ebinop _ -> Jboolean
 and tp_expr_simple cls es = match es.desc with
@@ -75,7 +75,7 @@ let rec cp_expr cls e = match e.desc with
 			movq (reg rax) (ind (reg rbx))
   | Eunop (Uneg, e0) -> cp_expr cls e0 += negq (reg rax)
   | Eunop (Unot ,e0) -> cp_expr cls e0 += notq (reg rax)
-	| Ebinop (Badd, e1, e2) when tp_expr cls e1 <> Jint
+	| Ebinop (e1, Badd, e2) when tp_expr cls e1 <> Jint
 														|| tp_expr cls e2 <> Jint ->
 			cp_expr cls e1 +=
 			(	if tp_expr cls e1 <> Jint then nop
@@ -90,7 +90,7 @@ let rec cp_expr cls e = match e.desc with
 					call "0convert" ++
 					movq (reg rax) (reg rdi) ) +=
 			call "0concat"
-  | Ebinop (Beq | Bneq | Blt | Ble | Bgt | Bge as op, e1, e2) ->  
+  | Ebinop (e1, Beq | Bneq | Blt | Ble | Bgt | Bge as op, e2) ->  
       cp_expr cls e1 +=
 			pushq (reg rax) +++
 			cp_expr cls e2 +=
@@ -101,7 +101,7 @@ let rec cp_expr cls e = match e.desc with
 				| Blt -> setl | Ble -> setle
 				| Bgt -> setg | Bge -> setge
 			end (reg rax)
-	| Ebinop (Badd | Bsub | Bmul | Bdiv | Bmod as op, e1 , e2) ->
+	| Ebinop (e1, Badd | Bsub | Bmul | Bdiv | Bmod as op, e2) ->
 			cp_expr cls e1 +=
 			pushq (reg rax) +++
 			cp_expr cls e2 +=
@@ -113,7 +113,7 @@ let rec cp_expr cls e = match e.desc with
 				| Bmul -> imulq (reg rbx) (reg rax)
 				| Bdiv -> idivq (reg rbx)
 				| Bmod -> idivq (reg rbx) ++ movq (reg rdx) (reg rax) end
-	| Ebinop (Band | Bor as op, e1, e2) ->
+	| Ebinop (e1, Band | Bor as op, e2) ->
 			let lbl = new_lbl () in
 			cp_expr cls e1 +=
 			testq (reg rax) (reg rax) +=

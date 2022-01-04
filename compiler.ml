@@ -44,7 +44,7 @@ and tp_expr_simple cls es = match es.desc with
 	| ESint _ -> Jint
 	| ESbool _ -> Jboolean
 	| ESstr _ -> jnt ( Ntype ("String", []) )
-	| ESthis -> (Hasstbl.find var "this").tp
+	| ESthis -> (Hashtbl.find var "this").tp
 	| ESexpr e -> tp_expr cls e
 	| ESnew (nt, _) -> jnt nt
 	| ESacces_meth (a, _) -> tp_acces cls a

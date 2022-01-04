@@ -21,7 +21,7 @@ let var = Hashtbl.create 8
 let size c = 8*(Hashtbl.length c.champs)+8
 
 let dp = Lexing.dummy_pos
-let jnt nt = Jntype { desc = nt ; loc = dp, dp }
+let jnt nt = Jntype { desc = nt.desc ; loc = dp, dp }
 let this id = { loc = dp, dp ; desc = Achemin
 		({ desc =  ESthis ; loc = dp, dp }, id)  }
 

@@ -90,7 +90,7 @@ let rec cp_expr cls e = match e.desc with
 					call "0convert" ++
 					movq (reg rax) (reg rdi) ) +=
 			call "0concat"
-  | Ebinop (e1, (Beq | Bneq | Blt | Ble | Bgt | Bge) as op, e2) ->  
+  | Ebinop (e1, (Beq | Bneq | Blt | Ble | Bgt | Bge as op), e2) ->  
       cp_expr cls e1 +=
 			pushq (reg rax) +++
 			cp_expr cls e2 +=
@@ -101,7 +101,7 @@ let rec cp_expr cls e = match e.desc with
 				| Blt -> setl | Ble -> setle
 				| Bgt -> setg | Bge -> setge
 			end (reg rax)
-	| Ebinop (e1, (Badd | Bsub | Bmul | Bdiv | Bmod) as op, e2) ->
+	| Ebinop (e1, (Badd | Bsub | Bmul | Bdiv | Bmod as op), e2) ->
 			cp_expr cls e1 +=
 			pushq (reg rax) +++
 			cp_expr cls e2 +=
@@ -113,7 +113,7 @@ let rec cp_expr cls e = match e.desc with
 				| Bmul -> imulq (reg rbx) (reg rax)
 				| Bdiv -> idivq (reg rbx)
 				| Bmod -> idivq (reg rbx) ++ movq (reg rdx) (reg rax) end
-	| Ebinop (e1, (Band | Bor) as op, e2) ->
+	| Ebinop (e1, (Band | Bor as op), e2) ->
 			let lbl = new_lbl () in
 			cp_expr cls e1 +=
 			testq (reg rax) (reg rax) +=

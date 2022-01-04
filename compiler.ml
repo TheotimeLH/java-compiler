@@ -186,7 +186,7 @@ let rec cp_instruc cls st = match st.desc with
 			cp_acces cls a += 
 			pushq (reg rax) +++
 			cp_expr cls e +=
-			popq (reg rbx) +=
+			popq rbx +=
 			movq (reg rax) (ind (reg rbx))
 	| Idef (jt, id) -> decr p ;
 			Hashtbl.replace var id { tp = jt ; ofs = !p*8 } ;

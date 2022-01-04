@@ -37,7 +37,7 @@ let rec tp_expr cls e = match e.desc with
 	| Ebinop (e1, Badd, e2) ->
 			if tp_expr cls e1 = Jint && tp_expr cls e 2 = Jint
 			then Jint else jnt ( Ntype ("String", []) )
-	| Ebinop (_, Bsub | Bmul | Bdiv | Bmod, _)
+	| Ebinop (_, (Bsub | Bmul | Bdiv | Bmod), _)
 	| Eunop (Uneg, _) -> Jint
 	| Eunop _ | Ebinop _ -> Jboolean
 and tp_expr_simple cls es = match es.desc with

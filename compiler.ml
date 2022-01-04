@@ -42,7 +42,7 @@ let rec tp_expr cls e = match e.desc with
 	| Eunop _ | Ebinop _ -> Jboolean
 and tp_expr_simple cls es = match es.desc with
 	| ESint _ -> Jint
-	| ESboll _ -> Jboolean
+	| ESbool _ -> Jboolean
 	| ESstr _ -> jnt ( Ntype ("String", []) )
 	| ESthis -> (Hasstbl.find var "this").tp
 	| ESexpr e -> tp_expr cls e

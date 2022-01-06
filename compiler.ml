@@ -318,5 +318,5 @@ let cp_fichier prog =
 			string "%s%s" ++
 			label "Print_0" ++
 			string "%s" ++
-	                label "Println_0" ++
-                        string "%s\n" }
+	    label "Println_0" ++
+      string "%s\n" }

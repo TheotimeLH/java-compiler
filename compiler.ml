@@ -101,13 +101,15 @@ let rec cp_expr cls e = match e.desc with
       cp_expr cls e1 +=
 			pushq (reg rax) +++
 			cp_expr cls e2 +=
-			popq rdx +=
-			cmpq (reg rax) (reg rdx) +=
+			popq rbx +=
+			cmpq (reg rax) (reg rbx) +=
 			begin match op with
 				| Beq -> sete | Bneq -> setne
 				| Blt -> setl | Ble -> setle
 				| Bgt -> setg | Bge -> setge
-			end (reg rax)
+			end (reg bl) +=
+                        movq (imm 0) (reg rax) +=
+                        movb (reg bl) (reg al)
 	| Ebinop (e1, (Badd | Bsub | Bmul | Bdiv | Bmod as op), e2) ->
 			cp_expr cls e1 +=
 			pushq (reg rax) +++
@@ -132,10 +134,10 @@ and cp_expr_simple cls es = match es.desc with
   | ESint n -> movq (imm n) (reg rax), nop
   | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
   | ESstr s -> let lbl = "String" ^ new_lbl () in
-               movq (imm lbl) (reg rax), label lbl ++ string s
+               movq (ilab lbl) (reg rax), label lbl ++ string s
   | ESthis -> movq (ind ~ofs:16 rbp) (reg rax), nop
   | ESexpr e -> cp_expr cls e
-  | ESnew (Ntype (id, _), l)  ->
+  | ESnew ({desc = Ntype (id, _)}, l)  ->
 			let c = Hashtbl.find cls id in
 			let aux cd e =
 				cp_expr cls e +=
@@ -161,7 +163,7 @@ and cp_expr_simple cls es = match es.desc with
 and cp_acces cls a = match a.desc with
 	| Aident id ->
 			if id == "System" then raise System ;
-			begin try let n = (Hashtbl.find var id).adrs in
+			begin try let n = (Hashtbl.find var id).ofs in
 			leaq (ind ~ofs:n rbp) (reg rax), nop
 			with Not_found -> cp_acces cls (this id) end
 	| Achemin (es, id) ->

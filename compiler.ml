@@ -1,103 +1,44 @@
 
 open Ast
 open X86_64
+open Precompil
 
-exception System
-exception System_out
-
-type 'a tbl = (ident, 'a) Hashtbl.t
-type var = {tp: jtype; ofs: int}
-type champ = {tp: jtype; ofs: int}
-type meth = {tp: jtype; lbl: label}
-type cls = {mutable cons: label;
-						champs: champ tbl;
-						meths: meth tbl}
+module Smap = Map.Make(String)
+module Sset = Set.Make(String)
 
 let (+=) (t1, d) t2 = t1 ++ t2, d
 let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
 
-let p = ref 0
-let var = Hashtbl.create 8
-let size c = 8*(Hashtbl.length c.champs)+8
-
-let dp = Lexing.dummy_pos
-let jnt nt = Jntype { desc = nt ; loc = dp, dp }
-let this id = { loc = dp, dp ; desc = Achemin
-		({ desc =  ESthis ; loc = dp, dp }, id)  }
-
-let nlbl = ref 0
+let nllb = ref 0
 let new_lbl () =
   incr nlbl ;
-  Format.sprintf "_%d" !nlbl
+  Format.sprintf ".%d" !nlbl
 
-let rec tp_expr cls e = match e.desc with
-	| Enull -> Jtypenull
-	| Esimple es -> tp_expr_simple cls es
-	| Eequal (_, e0) -> tp_expr cls e0
-	| Ebinop (e1, Badd, e2) ->
-			if tp_expr cls e1 = Jint && tp_expr cls e2 = Jint
-			then Jint else jnt ( Ntype ("String", []) )
-	| Ebinop (_, (Bsub | Bmul | Bdiv | Bmod), _)
-	| Eunop (Uneg, _) -> Jint
-	| Eunop _ | Ebinop _ -> Jboolean
-and tp_expr_simple cls es = match es.desc with
-	| ESint _ -> Jint
-	| ESbool _ -> Jboolean
-	| ESstr _ -> jnt ( Ntype ("String", []) )
-	| ESthis -> (Hashtbl.find var "this").tp
-	| ESexpr e -> tp_expr cls e
-	| ESnew (nt, _) -> jnt nt.desc
-	| ESacces_meth (a, _) -> tp_acces cls a
-	| ESacces_var a ->  tp_acces cls a
-and tp_acces cls a = match a.desc with
-	| Aident id -> 
-			if id = "System" then raise System ;
-			begin try (Hashtbl.find var id).tp
-			with Not_found -> tp_acces cls (this id) end
-	| Achemin (es, id) ->
-			match tp_expr_simple cls es with
-				| Jntype { desc = Ntype (nom, _) } ->
-						let c = Hashtbl.find cls nom in
-						begin try (Hashtbl.find c.champs id).tp
-						with Not_found -> (Hashtbl.find c.meths id).tp end
-				| exception System -> raise System_out
-				| exception System_out -> Jtypenull
-				| _ -> exit 1
-
-let rec cp_expr cls e = match e.desc with
-  | Enull -> movq (imm 0) (reg rax), nop
-  | Esimple es -> cp_expr_simple cls es
-  | Eequal (a, e0) ->
+let rec cp_expr vars p e = match e with
+  | T_Enull -> movq (imm 0) (reg rax), nop
+  | T_Eequal (a, e0) ->
 			cp_acces cls a += 
 			pushq (reg rax) +++
 			cp_expr cls e0 +=
 			popq rbx +=
 			movq (reg rax) (ind rbx)
-  | Eunop (Uneg, e0) -> cp_expr cls e0 += negq (reg rax)
-  | Eunop (Unot ,e0) -> cp_expr cls e0 += notq (reg rax)
-	| Ebinop (e1, Badd, e2) when tp_expr cls e1 <> Jint
-														|| tp_expr cls e2 <> Jint ->
+  | T_Eunop (Uneg, e0) -> cp_expr cls e0 += negq (reg rax)
+  | T_Eunop (Unot ,e0) -> cp_expr cls e0 += notq (reg rax)
+  | T_Eunop (Convert, e0) ->
+      cp_expr vars p e0 +=
+      movq (reg rax) (reg rsi) +=
+      movq (ilab "Convert.0" (reg rdi) +=
+      movq (imm 0) (reg rax)
+	| T_Ebinop (e1, Bconcat, e2) ->
 			cp_expr cls e1 +=
-			(	if tp_expr cls e1 <> Jint then nop
-				else
-					movq (reg rax) (reg rsi) ++
-					movq (ilab "Convert_0") (reg rdi) ++
-					movq (imm 0) (reg rax) ++
-					call "sprintf" ) +=
 			pushq (reg rax) +++
 			cp_expr cls e2 +=
-			( if tp_expr cls e2 <> Jint then nop
-				else
-					movq (reg rax) (reg rsi) ++
-					movq (ilab "Convert_0") (reg rdi) ++
-					movq (imm 0) (reg rax) ++
-					call "sprintf" ) +=
 			popq rdx +=
 			movq (reg rax) (reg rsi) +=
-			movq (ilab "Concat_0") (reg rdi) +=
+			movq (ilab "Concat.0") (reg rdi) +=
 			movq (imm 0) (reg rax) +=
 			call "sprintf"
-  | Ebinop (e1, (Beq | Bneq | Blt | Ble | Bgt | Bge as op), e2) ->  
+  | T_Ebinop (e1, (Beq | Bneq | Blt | Ble | Bgt | Bge as op), e2) ->  
       cp_expr cls e1 +=
 			pushq (reg rax) +++
 			cp_expr cls e2 +=
@@ -110,7 +51,7 @@ let rec cp_expr cls e = match e.desc with
 			end (reg bl) +=
                         movq (imm 0) (reg rax) +=
                         movb (reg bl) (reg al)
-	| Ebinop (e1, (Badd | Bsub | Bmul | Bdiv | Bmod as op), e2) ->
+	| T_Ebinop (e1, (Badd | Bsub | Bmul | Bdiv | Bmod as op), e2) ->
 			cp_expr cls e1 +=
 			pushq (reg rax) +++
 			cp_expr cls e2 +=
@@ -122,22 +63,20 @@ let rec cp_expr cls e = match e.desc with
 				| Bmul -> imulq (reg rbx) (reg rax)
 				| Bdiv -> idivq (reg rbx)
 				| Bmod -> idivq (reg rbx) ++ movq (reg rdx) (reg rax) end
-	| Ebinop (e1, (Band | Bor as op), e2) ->
+	| T_Ebinop (e1, (Band | Bor as op), e2) ->
 			let lbl = new_lbl () in
 			cp_expr cls e1 +=
 			testq (reg rax) (reg rax) +=
 			(match op with | Band -> je | Bor -> jne) lbl +++
 			cp_expr cls e2 +=
 			label lbl
-			
-and cp_expr_simple cls es = match es.desc with
-  | ESint n -> movq (imm n) (reg rax), nop
-  | ESbool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
-  | ESstr s -> let lbl = "String" ^ new_lbl () in
+  | T_Eint n -> movq (imm n) (reg rax), nop
+  | T_Ebool b -> movq (imm (if b then 1 else 0)) (reg rax), nop
+  | T_Estr s -> let lbl = "String" ^ new_lbl () in
                movq (ilab lbl) (reg rax), label lbl ++ string s
-  | ESthis -> movq (ind ~ofs:16 rbp) (reg rax), nop
-  | ESexpr e -> cp_expr cls e
-  | ESnew ({desc = Ntype (id, _)}, l)  ->
+  | T_Ethis -> movq (ind ~ofs:16 rbp) (reg rax), nop
+  | T_Eexpr e -> cp_expr cls e
+  | T_Enew ({desc = Ntype (id, _)}, l)  ->
 			let c = Hashtbl.find cls id in
 			let aux cd e =
 				cp_expr cls e +=
@@ -149,24 +88,24 @@ and cp_expr_simple cls es = match es.desc with
 			pushq (reg rax) ++
 			call c.cons ++
 			popq rax, nop) l			
-  | ESacces_meth (a, l) ->
+  | T_Eacces_meth (a, l) ->
 			let aux cd e =
 				cp_expr cls e +=
 				pushq (reg rax) +++
 				cd += popq rcx
 			in List.fold_left aux (cp_acces cls a) l
-  | ESacces_var a ->
+  | T_Eacces_var a ->
 			cp_acces cls a +=
 			movq (reg rax) (reg rbx) +=
 			movq (ind rbx) (reg rax)
 
 and cp_acces cls a = match a.desc with
-	| Aident id ->
+	| T_Aident id ->
 			if id == "System" then raise System ;
 			begin try let n = (Hashtbl.find var id).ofs in
 			leaq (ind ~ofs:n rbp) (reg rax), nop
 			with Not_found -> cp_acces cls (this id) end
-	| Achemin (es, id) ->
+	| T_Achemin (es, id) ->
 			match tp_expr_simple cls es with
 				| Jntype { desc = Ntype (nom, _) } ->
 						let c = Hashtbl.find cls nom in
@@ -190,23 +129,23 @@ and cp_acces cls a = match a.desc with
 				| _ -> exit 1			
 
 let rec cp_instruc cls st = match st.desc with
-	| Inil -> nop, nop
-	| Isimple es -> cp_expr_simple cls es
-	| Iequal (a, e) ->
+	| T_Inil -> nop, nop
+	| T_Isimple es -> cp_expr_simple cls es
+	| T_Iequal (a, e) ->
 			cp_acces cls a += 
 			pushq (reg rax) +++
 			cp_expr cls e +=
 			popq rbx +=
 			movq (reg rax) (ind rbx)
-	| Idef (jt, id) -> decr p ;
+	| T_Idef (jt, id) -> decr p ;
 			Hashtbl.replace var id { tp = jt ; ofs = !p*8 } ;
 			pushq $0, nop
-	| Idef_init (jt, id, e) -> decr p ;
+	| T_Idef_init (jt, id, e) -> decr p ;
 			Hashtbl.replace var id { tp = jt ; ofs = !p*8 } ;
 			cp_expr cls e += pushq (reg rax)
-	| Iif (e, s1, s2) ->
+	| T_Iif (e, s1, s2) ->
 			let n = new_lbl () in
-			let lbl1 = "If"^n in
+			let lbl1 = "T_If"^n in
 			let lbl2 = "Else"^n in 
 			cp_expr cls e +=
 			testq (reg rax) (reg rax) +=
@@ -216,7 +155,7 @@ let rec cp_instruc cls st = match st.desc with
 			label lbl2 +++
 			cp_instruc cls s2 +=
 			label lbl1
-	| Iwhile (e, s) ->
+	| T_Iwhile (e, s) ->
 			let n = new_lbl () in
 			let lbl1 = "Deb"^n in
 			let lbl2 = "Fin"^n in
@@ -227,10 +166,10 @@ let rec cp_instruc cls st = match st.desc with
 			cp_instruc cls s +=
 			jmp lbl1 +=
 			label lbl2
-	| Ibloc l -> List.fold_left (+++) (nop, nop)
+	| T_Ibloc l -> List.fold_left (+++) (nop, nop)
 							 (List.map (cp_instruc cls) l)
-	| Ireturn None -> leave ++ ret, nop
-	| Ireturn (Some e) -> cp_expr cls e += leave += ret	
+	| T_Ireturn None -> leave ++ ret, nop
+	| T_Ireturn (Some e) -> cp_expr cls e += leave += ret	
 
 let cp_classe cls c =
 	let cinfo = Hashtbl.find cls c.nom in
@@ -303,20 +242,22 @@ let cp_fichier prog =
 		| _::q -> aux q 
 		| [] -> nop, nop
 	in let t, d = aux prog in
+
 	{ text =
 			globl "Main" ++
 			label "Main" ++
 			t ++ 
-			label "New_0" ++
+			label "new" ++
 			leave ++ ret ++
-			label "String_equals_0" 
+			label "String.equals" 
 			(* A COMPLETER *) ;
 		data = d ++
-			label "Convert_0" ++
+			label "Convert.0" ++
 			string "%d" ++
-			label "Concat_0" ++
+			label "Concat.0" ++
 			string "%s%s" ++
-			label "Print_0" ++
+			label "Print.0" ++
 			string "%s" ++
-	    label "Println_0" ++
+	    label "Println.0" ++
       string "%s\n" }
+

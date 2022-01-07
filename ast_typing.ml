@@ -99,3 +99,76 @@ type nom_var =
   | Muet
   | New
   | Nom of ident
+
+
+(* ===== TYPES DE SORTIE ===== *)
+
+type ty_type = 
+  | Tint | Tbool
+  | Tstr | Tnull
+  | Tvoid
+  | Tconstruit of ident
+ 
+type 'a typed = {typ : ty_type ; expr : 'a}
+
+type ty_unop =
+  | T_Uneg | T_Unot
+  | T_Uconvert
+
+type ty_binop =
+  | T_Badd_int
+  | T_Bconcat
+  | T_Bsub | T_Bmul | T_Bdiv | T_Bmod
+  | T_Beq | T_Bneq | T_Blt | T_Ble | T_Bgt | T_Bge
+  | T_Band | T_Bor
+
+type ty_expr =
+  | T_Eint of int  | T_Estr of string | T_Ebool of bool
+  | T_Enull
+  | T_Eunop of ty_unop * ty_expr 
+  | T_Ebinop of ty_expr * ty_binop * ty_expr 
+  | T_Eprint of ty_expr 
+  | T_Eprintln of ty_expr 
+  | T_Estr_equal of ty_expr * ty_expr
+  | T_Ethis
+  | T_Eequal of ty_acces * ty_expr 
+  | T_Enew of ident * ty_expr list
+  | T_Eacces_meth of ty_acces * ty_expr list
+  | T_Eacces_var of ty_acces 
+
+and ty_acces =
+  | T_Aident of ident
+  | T_Achemin of ty_expr * ident
+
+type ty_instr = 
+  | T_Inil
+  | T_Isimple of ty_expr  
+  | T_Iequal of ty_acces * ty_expr 
+  | T_Idef of ty_type * ident
+  | T_Idef_init of ty_type * ident * ty_expr 
+  | T_Iif of ty_expr * ty_instr * ty_instr 
+  | T_Iwhile of ty_expr * ty_instr 
+  | T_Ibloc of ty_instr list
+  | T_Ireturn of ty_expr option
+
+
+type ty_meth =
+{ params : ident list ;
+  body : ty_instr list }
+
+type ty_cle_meth = ident * ident 
+(* Nom de la classe , nom de la méthode *)
+
+type ty_classe =
+{ nom : ident ;
+  cle_methodes : ty_cle_meth list ;
+  id_champs : ident list ;
+  constructeur : ty_meth option }
+
+type ty_tbl_meth = (ty_cle_meth , ty_meth) Hashtbl.t
+
+type ty_all =
+{ classes : ty_classe list ; (* et dans un ordre topologique *)
+  tbl_meth : ty_tbl_meth ;
+  node_obj : node (* On récupère ainsi tout l'arbre d'héritage des classes *)
+}

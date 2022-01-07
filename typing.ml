@@ -1072,8 +1072,6 @@ let type_fichier l_ci =
      - pour (adrien.ville_natale.nb_d'habitants = 700) on renvoie (Nom "adrien",Some int)
      - pour (new C(7)).m() on renvoie (New,type de retour de m dans C) *)
 
-  (* ATTENTION C'EST ICI QUE NOUS PRODUIRONS LE NOUVEL ARBRE DE SYNTAXE
-     MAIS VU MON RETARD, JE TIENS D'ABORD À TESTER LE TYPEUR    *)
 
   (* === LES ACCES === *)
   let rec jtype_of_acces loc_acc env_typage env_vars b = function
@@ -1581,4 +1579,21 @@ let type_fichier l_ci =
   let env_vars = IdMap.empty in
   let loc_main = Hashtbl.find env_typage_global.tab_loc "Main" in
   verifie_bloc_instrs_effectif None loc_main env_typage_global env_vars !body_main
+
+  
+  (* == LE NOUVEL ARBRE DE SYNTAXE == *)
+  (* Brièvement ce qu'il nous faut pour la production de code
+     (pour des explications voir le rapport) :
+     - Pour les méthodes :
+       Désormais on repère une méthode par une clé :
+       (nom de la classe où est son corps , nom de la méthode)
+       avec ça on joint une table tbl_meth : cle -> (son corps,les params : ident list)
+       La liste des méthodes d'une classe se résume à la liste des clés.
+     - Pour les champs :
+       On ne garde que la liste des noms des champs.
+     - On renvoie la node Objet, pour récupérer l'arbre des héritages des classes.
+     - On transforme tout l'arbre de syntaxe des corps, avec des nouveaux types.
+       Pour *)
+     
+
 

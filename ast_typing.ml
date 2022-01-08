@@ -130,7 +130,8 @@ type ty_expr =
 
 and ty_acces =
   | T_Aident of ident
-  | T_Achemin of ty_expr typed * ident
+  | T_Achemin_meth of ty_expr * ident * ident
+  | T_Achemin_ch of ty_expr * ident * ident
 
 type ty_instr = 
   | T_Inil

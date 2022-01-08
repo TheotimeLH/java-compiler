@@ -199,13 +199,13 @@ let cp_fichier f =
   in
 
   let text_meths,  _, _ =
-    let aux key info cd =
+    let aux key info t =
       let k = ref 2 in
       let lmbd id v = incr k ; IdMap.add id (!k*8) v in
       let vars = List.fold_left lmbd IdMap.empty info.params in
       let lbl = fst key ^ "." ^ snd key in
-      let cd0 = cd ++ label lbl in
-      List.fold_left cp_instruc (cd0, vars, -8) l
+      let cd = t ++ label lbl in
+      List.fold_left cp_instruc (cd, vars, -8) l
     in Hashtbl.fold aux f.tbl_meth nop
   in
 
@@ -218,18 +218,40 @@ let cp_fichier f =
     IdSet.fold aux setr nop
   in
 
-  let (text_cons, data_descr) =
-    nop, nop (* A COMPLETER *)
+  let text_cons =
+    let aux t c = match c.constructeur with
+      | None -> t
+      | Some m -> 
+          let k = ref 2 in
+          let lmbd id v = incr k ; IdMap.add id (!k*8) v in
+          let vars = List.fold_left lmbd IdMap.empty info.params in
+          let lbl = c.nom ^ ".new" in
+          let cd = t ++ label lbl in
+          List.fold_left cp_instruc (cd, vars, -8) l
+    in List.fold_left aux nop f.classes
+  in
+
+  let data_descr =
+    let aux d c =
+      let lmbd k x = max (Hashtbl.find meths x) k in
+      let n = List.fold_left lmbd 0 c.cle_methodes in
+      let t = Array.make n None in
+      List.iter (fun x -> t.(Hashtbl.find meths x) <- Some x) c.cle_methodes ;
+      Array.fold_left ( fun dt opt -> match opt with
+                          | None -> dt ++ dquad [0]
+                          | Some (x, y) -> dt ++ address [x^"."^y] ) nop t
+    in List.fold_left aux nop f.classes
   in
 
 	{ text =
 			globl "Main" ++
 			label "Main" ++
 			text_main ++
-      text_meths ++
-      text_cons ++ 
+      movq (imm 0) (reg rax) ++
 			label "new.0" ++
 			leave ++ ret ++
+      text_cons ++
+      text_meths ++
 			label "String.equals.0" ++
       movq (imm 0) (reg rcx) ++
       movq (imm 1) (reg rax) ++
@@ -242,7 +264,6 @@ let cp_fichier f =
       label "Fin.0" ;
 		data =
       data_descr ++
-      data_cstr ++
 			label "Convert.0" ++
 			string "%d" ++
 			label "Concat.0" ++
@@ -250,5 +271,6 @@ let cp_fichier f =
 			label "Print.0" ++
 			string "%s" ++
 	    label "Println.0" ++
-      string "%s\n" }
+      string "%s\n" ++
+      data_setr }
 

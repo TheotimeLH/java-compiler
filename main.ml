@@ -58,5 +58,5 @@ let () =
     
     let code = Compiler.cp_fichier typed in
     let file_s = (Filename.chop_suffix file_java ".java")^".s" in
-    X86_64.print_in_file file_s ;
+    X86_64.print_in_file file_s code ;
     exit 0

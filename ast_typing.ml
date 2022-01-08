@@ -103,14 +103,6 @@ type nom_var =
 
 (* ===== TYPES DE SORTIE ===== *)
 
-type ty_type = 
-  | Tint | Tbool
-  | Tstr | Tnull
-  | Tvoid
-  | Tconstruit of ident
- 
-type 'a typed = {typ : ty_type ; expr : 'a}
-
 type ty_unop =
   | T_Uneg | T_Unot
   | T_Uconvert
@@ -138,14 +130,14 @@ type ty_expr =
 
 and ty_acces =
   | T_Aident of ident
-  | T_Achemin of ty_expr * ident
+  | T_Achemin of ty_expr typed * ident
 
 type ty_instr = 
   | T_Inil
   | T_Isimple of ty_expr  
   | T_Iequal of ty_acces * ty_expr 
-  | T_Idef of ty_type * ident
-  | T_Idef_init of ty_type * ident * ty_expr 
+  | T_Idef of ident
+  | T_Idef_init of ident * ty_expr 
   | T_Iif of ty_expr * ty_instr * ty_instr 
   | T_Iwhile of ty_expr * ty_instr 
   | T_Ibloc of ty_instr list

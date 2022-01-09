@@ -1112,14 +1112,14 @@ let type_fichier l_ci =
     | Aident id ->
       if b then 
         begin match (IdMap.find_opt id env_vars) with
-        | Some {jt} -> (Nom id,Some jt,[],env_vars) , (T_Aident id)
+        | Some {jt} -> (Nom id,Some jt,None ,[],env_vars) , (T_Aident id)
         | None -> 
           begin match (IdMap.find_opt "this" env_vars) with
           | Some {jt = Jntype dn} -> 
             let Ntype(id_c,_) = dn.desc in
             let champs = Hashtbl.find env_typage.champs id_c in
             begin match (Hashtbl.find_opt champs id) with
-            | Some info_ch -> (Nom "this",Some info_ch.typ.desc ,[],env_vars) 
+            | Some info_ch -> (Nom "this",Some info_ch.typ.desc , None ,[],env_vars) 
                 , (T_Achemin_ch ((T_Ethis , id_c), id))
             | None -> raise (Typing_error {loc = loc_acc ;
               msg = id ^ " est inconnue, ni une variable local, ni un champ de this"})
@@ -1141,7 +1141,7 @@ let type_fichier l_ci =
             let type_r = (match info_meth.typ with None -> None | Some dj -> Some dj.desc) in
             let jt_params = 
               List.map (fun (dj : jtype desc) -> dj.desc) info_meth.types_params in
-            (Nom "this", type_r , jt_params , env_vars) 
+            (Nom "this", type_r , None , jt_params , env_vars) 
             , (T_Achemin_meth (T_Ethis , id))
             (* ici pas besoin de substituer, car l'env_typage de this est l'env actuel *)
           end
@@ -1157,7 +1157,7 @@ let type_fichier l_ci =
         jtype_of_expr_s dexpr_s.loc env_typage env_vars dexpr_s.desc in
       begin match info_typage with
       (* ce qu'on nous donne est initialisé ! *)
-      | (nom_var, Some (Jntype dn),env_vars') ->
+      | (nom_var, Some (Jntype dn) ,env_vars') ->
         let Ntype (id_ci,l_ntypes_ci) = dn.desc in
         let sigma = fait_sigma id_ci dn.loc l_ntypes_ci in
         (* On pourrait l'enregistrer dans env_vars... *)
@@ -1172,7 +1172,7 @@ let type_fichier l_ci =
           | None -> raise (Typing_error {loc = loc_acc ;
               msg = id_ci ^ " ne possède pas de champ " ^ id })
           | Some champ ->
-              (nom_var,Some (substi_jt sigma champ.typ.desc),[],env_vars') ,
+              (nom_var,Some (substi_jt sigma champ.typ.desc),None,[],env_vars') ,
               (T_Achemin_ch ((typed_expr , (vraie_c env_typage id_ci)), id))
           end end
         else begin
@@ -1190,7 +1190,7 @@ let type_fichier l_ci =
             let jt_params = 
               List.map (fun (dj : jtype desc) -> (substi_dj sigma dj).desc)
               meth.types_params in
-            (nom_var , type_r , jt_params , env_vars' ) ,
+            (nom_var , type_r , Some dn, jt_params , env_vars' ) ,
             (T_Achemin_meth (typed_expr,id))
           end end
       
@@ -1205,7 +1205,7 @@ let type_fichier l_ci =
   and acces_equal_expr env_typage env_vars (dacces : acces desc) (dexpr : expr desc) loc =
     let ((_,jo_expr,env_vars'),typed_expr) = 
       jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
-    let ((nom_var, jo_acces, _ , env_vars''),typed_acces) = 
+    let ((nom_var, jo_acces, _ , _ , env_vars''),typed_acces) = 
       jtype_of_acces dacces.loc env_typage env_vars' true dacces.desc in
     (* J'ai fait env_vars -> env_vars' via l'expr -> env_vars'' via l'accès
        Mais je n'ai pas vérifié le comportement de java, peut-être que
@@ -1413,7 +1413,7 @@ let type_fichier l_ci =
         (* === Fin de System.out.print === *)
 
         else begin 
-        let (nom_var,jo_acces,jt_params,env_vars'),typed_acces = 
+        let (nom_var,jo_acces,dno_type_expr,jt_params,env_vars'),typed_acces = 
           jtype_of_acces dacces.loc env_typage env_vars false dacces.desc in
         begin match nom_var with
         | Muet | New -> ()
@@ -1430,9 +1430,9 @@ let type_fichier l_ci =
            la méthode equals de la classe String des autres ici.
            Dans les faits, ce serait mieux de tout refaire au sujet des String. *)
         let typed_expr_str = ref (T_Estr "") in
-        if begin match jo_acces,typed_acces with
-        | Some (Jntype {desc=Ntype("String",[])}) , T_Achemin_meth (typed_expr,"equals") 
-          -> typed_expr_str := typed_expr ; true
+        if begin match dno_type_expr,typed_acces with
+        | Some ({desc=Ntype("String",[])}) , T_Achemin_meth (typed_expr,"equals") 
+        -> typed_expr_str := typed_expr ; true
         | _ -> false end
         then ((nom_var,jo_acces,env_vars''), 
           T_Estr_equal (!typed_expr_str , List.hd typed_l_expr))
@@ -1441,7 +1441,7 @@ let type_fichier l_ci =
         end
 
     | ESacces_var dacces ->
-        let (nom_var,jo_acces,_,env_vars'),typed_acces = 
+        let (nom_var,jo_acces,_,_,env_vars'),typed_acces = 
           jtype_of_acces dacces.loc env_typage env_vars true dacces.desc in
         begin match nom_var with
         | Muet | New -> ()

@@ -74,7 +74,7 @@ let cp_fichier f =
     | T_Eint n -> movq (imm n) (reg rax)
     | T_Ebool b -> movq (imm (if b then 1 else 0)) (reg rax)
     | T_Estr s -> 
-        let lbl = "String."^
+        let lbl = "string"^
           begin try IdMap.find s !cstr 
           with Not_found ->
             let n = new_lbl () in
@@ -125,7 +125,7 @@ let cp_fichier f =
         cp_expr vars p e2 ++
         popq rdi ++
         movq (reg rax) (reg rdi) ++
-        call "String.equals.0"
+        call "String.equals"
 
   and cp_acces vars p a = match a with
     | T_Aident id ->
@@ -146,7 +146,7 @@ let cp_fichier f =
 
   and cp_instruc (cd, vars, p) st = match st with
     | T_Inil -> cd, vars, p 
-    | T_Isimple e -> cp_expr vars p e, vars, p
+    | T_Isimple e -> cd ++ cp_expr vars p e, vars, p
     | T_Iequal (a, e) ->
         cd ++
         cp_acces vars p a ++ 
@@ -215,11 +215,6 @@ let cp_fichier f =
     List.fold_left cp_instruc (nop, IdMap.empty, -8) f.main_body
   in
 
-  let data_cstr =
-    let aux s n d = d ++ label ("String."^n) ++ string s in
-    IdMap.fold aux !cstr nop
-  in
-
   let text_cons =
     let aux t c = match c.constructeur with
       | None -> t
@@ -230,7 +225,7 @@ let cp_fichier f =
           let lbl = c.nom ^ ".new" in
           let cd = t ++ label lbl in
           let cd0, _, _  = List.fold_left cp_instruc (cd, vars, -8) m.body in
-          cd0
+          cd0 ++ leave ++ ret
     in List.fold_left aux nop f.classes
   in
 
@@ -249,16 +244,21 @@ let cp_fichier f =
     in List.fold_left aux nop f.classes
   in
 
+  let data_cstr =
+    let aux s n d = d ++ label ("string"^n) ++ string s in
+    IdMap.fold aux !cstr nop
+  in
+
 	{ text =
-			globl "Main" ++
-			label "Main" ++
+			globl "main" ++
+			label "main" ++
 			text_main ++
       movq (imm 0) (reg rax) ++
 			label "new" ++
 			leave ++ ret ++
       text_cons ++
       text_meths ++
-			label "String.equals.0" ++
+			label "String.equals" ++
       movq (imm 0) (reg rcx) ++
       movq (imm 1) (reg rax) ++
       label "Deb.0" ++
@@ -268,7 +268,8 @@ let cp_fichier f =
       testq (reg rbx) (reg rbx) ++
       jne "Deb.0" ++
       movq (imm 1) (reg rax) ++
-      label "Fin.0" ;
+      label "Fin.0" ++
+      leave ++ ret ;
 		data =
       data_descr ++
 			label "Convert.0" ++

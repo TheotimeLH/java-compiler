@@ -29,24 +29,18 @@ let cp_fichier f =
         cp_expr vars e0 ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Convert.0") (reg rdi) ++
-        call "Align.0" ++
-        subq (reg rbx) (reg rsp) ++
         movq (imm 0) (reg rax) ++
-        call "sprintf" ++
-        addq (reg rbx) (reg rsp)
+        call "sprintf"
     | T_Ebinop (e1, T_Bconcat, e2) ->
         cp_expr vars e1 ++
         pushq (reg rax) ++
         cp_expr vars e2 ++
         popq rcx ++
-        call "Align.0" ++
-        subq (reg rbx) (reg rsp) ++
         movq (reg rcx) (reg rdx) ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Concat.0") (reg rdi) ++
         movq (imm 0) (reg rax) ++
-        call "sprintf" ++
-        addq (reg rbx) (reg rsp)
+        call "sprintf" 
     | T_Ebinop (e1, (T_Beq | T_Bneq | T_Blt | T_Ble | T_Bgt | T_Bge as op), e2) ->  
         cp_expr vars e1 ++
         pushq (reg rax) ++
@@ -122,20 +116,14 @@ let cp_fichier f =
         cp_expr vars e0 ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Print.0") (reg rdi) ++
-        call "Align.0" ++
-        subq (reg rbx) (reg rsp) ++
         movq (imm 0) (reg rax) ++
-        call "printf" ++
-        addq (reg rbx) (reg rsp)
+        call "printf"
     | T_Eprintln e0 ->
         cp_expr vars e0 ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Println.0") (reg rdi) ++
-        call "Align.0" ++
-        subq (reg rbx) (reg rsp) ++
         movq (imm 0) (reg rax) ++
-        call "printf" ++
-        addq (reg rbx) (reg rsp)
+        call "printf"
     | T_Estr_equal (e1, e2) -> 
         cp_expr vars e1 ++
         pushq (reg rax) ++
@@ -304,8 +292,7 @@ let cp_fichier f =
       movq (reg rsp) (reg rax) ++
       movq (imm 16) (reg rbx) ++
       idivq (reg rbx) ++
-      movq (imm 8) (reg rbx) ++
-      subq (reg rax) (reg rbx) ++
+      movq (reg rax) (reg rbx) ++
       ret ;
     data =
       data_descr ++

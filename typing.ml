@@ -1693,7 +1693,9 @@ let type_fichier l_ci =
     (IdSet.diff env_typage_global.c (IdSet.of_list ["Object";"String";"Main"])) ; *)
   let list_cl = List.filter
     (fun id_c -> (id_c <> "Object") && (id_c <> "String")) !list_cl in
-  let l_typed_class = List.map mk_corps_c list_cl in
+  let l_typed_class = 
+    {nom = "Object" ; cle_methodes = [] ; id_champs = [] ; constructeur = None }
+    :: (List.map mk_corps_c list_cl) in
 
   (* Enfin, on traite Main *)
   let env_vars = IdMap.empty in
@@ -1720,6 +1722,7 @@ let type_fichier l_ci =
        et/ou int). On sépare également les méthodes des champs dans les accès.
        Voir la fin de Ast_typing.ml pour la liste des types en sortie. 
        Enfin, on veut les classes dans un ordre topologique. *)
+  node_obj.succ <- List.filter (fun (n : node) -> n.id <> "String") node_obj.succ ;
 
   {classes = l_typed_class ;
    main_body = typed_main ; 

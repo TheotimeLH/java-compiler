@@ -4,7 +4,7 @@ open Ast_typing
 open X86_64
 open Pre_compiler
 
-let setr = ref IdSet.empty
+let cstr = ref IdMap.empty
 let size c = IdMap.cardinal c * 8 + 8
 
 let nlbl = ref 0
@@ -74,9 +74,13 @@ let cp_fichier f =
     | T_Eint n -> movq (imm n) (reg rax)
     | T_Ebool b -> movq (imm (if b then 1 else 0)) (reg rax)
     | T_Estr s -> 
-        let lbl = "String." ^ s in
-        setr := IdSet.add s !setr ;
-        movq (ilab lbl) (reg rax)
+        let lbl = "String."^
+          begin try IdMap.find s !cstr 
+          with Not_found ->
+            let n = new_lbl () in
+            cstr := IdMap.add s n !cstr ;
+            n end
+        in movq (ilab lbl) (reg rax)
     | T_Ethis -> movq (ind ~ofs:16 rbp) (reg rax)
     | T_Enew (id, l) ->
         let c = Hashtbl.find champs id in
@@ -161,8 +165,8 @@ let cp_fichier f =
         IdMap.add id p vars, p-8
     | T_Iif (e, s1, s2) ->
         let n = new_lbl () in
-        let lbl1 = "If."^n in
-        let lbl2 = "Else."^n in
+        let lbl1 = "If"^n in
+        let lbl2 = "Else"^n in
         let cd0 =
           cd ++
           cp_expr vars p e ++
@@ -175,8 +179,8 @@ let cp_fichier f =
         cd3 ++ label lbl1, v2, p2
     | T_Iwhile (e, s) ->
         let n = new_lbl () in
-        let lbl1 = "Deb."^n in
-        let lbl2 = "Fin."^n in
+        let lbl1 = "Deb"^n in
+        let lbl2 = "Fin"^n in
         let cd0 =
           cd ++
           label lbl1 ++
@@ -211,9 +215,9 @@ let cp_fichier f =
     List.fold_left cp_instruc (nop, IdMap.empty, -8) f.main_body
   in
 
-  let data_setr =
-    let aux s d = d ++ label ("String."^s) ++ string s in
-    IdSet.fold aux !setr nop
+  let data_cstr =
+    let aux s n d = d ++ label ("String."^n) ++ string s in
+    IdMap.fold aux !cstr nop
   in
 
   let text_cons =
@@ -258,9 +262,10 @@ let cp_fichier f =
       movq (imm 0) (reg rcx) ++
       movq (imm 1) (reg rax) ++
       label "Deb.0" ++
-      cmpq (ind ~index:rcx rdi) (ind ~index:rcx rsi) ++
+      movq (ind ~index:rcx rdi) (reg rbx) ++
+      cmpq (reg rbx) (ind ~index:rcx rsi) ++
       jne "Fin.0" ++
-      testq (ind ~index:rcx rdi) (ind ~index:rcx rsi) ++
+      testq (reg rbx) (reg rbx) ++
       jne "Deb.0" ++
       movq (imm 1) (reg rax) ++
       label "Fin.0" ;
@@ -274,5 +279,5 @@ let cp_fichier f =
 			string "%s" ++
 	    label "Println.0" ++
       string "%s\n" ++
-      data_setr }
+      data_cstr }
 

@@ -128,6 +128,7 @@ let cp_fichier f =
         let n = IdMap.find id vars in
         leaq (ind ~ofs:n rbp) rax
     | T_Achemin_meth (es, id) ->
+        Printf.printf "%s \n" id ;
         let n = Hashtbl.find meths id in
           cp_expr vars p es ++
           pushq (reg rax) ++
@@ -237,6 +238,8 @@ let cp_fichier f =
       let t = Array.make n None in
       let aux2 x = t.(Hashtbl.find meths (snd x)) <- Some x in
       List.iter aux2 c.cle_methodes ;
+      d ++ label c.nom ++ address
+      (match c.constructeur with None -> ["new"] | Some _ -> [c.nom^".new"]) ++
       Array.fold_left ( fun dt opt -> match opt with
                           | None -> dt ++ dquad [0]
                           | Some (x, y) -> dt ++ address [x^"."^y] ) nop t
@@ -248,7 +251,7 @@ let cp_fichier f =
 			label "Main" ++
 			text_main ++
       movq (imm 0) (reg rax) ++
-			label "new.0" ++
+			label "new" ++
 			leave ++ ret ++
       text_cons ++
       text_meths ++

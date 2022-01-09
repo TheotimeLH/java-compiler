@@ -205,7 +205,12 @@ let cp_fichier f =
       let aux1 v id = incr k ; IdMap.add id (!k*8) v in
       let vars = List.fold_left aux1 IdMap.empty info.params in
       let lbl = fst key ^ "." ^ snd key in
-      let cd = t ++ label lbl in
+      let cd =
+        t ++
+        label lbl ++
+        pushq (reg rbp) ++
+        movq (reg rsp) (reg rbp)
+      in
       let cd0, _, _ = List.fold_left cp_instruc (cd, vars, -8) info.body in
       cd0
     in Hashtbl.fold aux f.tbl_meth nop 
@@ -223,7 +228,12 @@ let cp_fichier f =
           let aux1 v id = incr k ; IdMap.add id (!k*8) v in
           let vars = List.fold_left aux1 IdMap.empty m.params in
           let lbl = c.nom ^ ".new" in
-          let cd = t ++ label lbl in
+          let cd =
+            t ++
+            label lbl ++
+            pushq (reg rbp) ++ 
+            movq (reg rsp) (reg rbp)
+          in
           let cd0, _, _  = List.fold_left cp_instruc (cd, vars, -8) m.body in
           cd0 ++ leave ++ ret
     in List.fold_left aux nop f.classes
@@ -255,7 +265,7 @@ let cp_fichier f =
 			text_main ++
       movq (imm 0) (reg rax) ++
 			label "new" ++
-			leave ++ ret ++
+			ret ++
       text_cons ++
       text_meths ++
 			label "String.equals" ++

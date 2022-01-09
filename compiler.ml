@@ -4,11 +4,8 @@ open Ast_typing
 open X86_64
 open Pre_compiler
 
-let (+=) (t1, d) t2 = t1 ++ t2, d
-let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2 
-
 let setr = ref IdSet.empty
-let size c = Hashtbl.length c * 8 + 8
+let size c = IdMap.cardinal c * 8 + 8
 
 let nlbl = ref 0
 let new_lbl () =
@@ -33,7 +30,7 @@ let cp_fichier f =
         movq (reg rax) (reg rsi) ++
         movq (ilab "Convert.0") (reg rdi) ++
         movq (imm 0) (reg rax)
-    | T_Ebinop (e1, Bconcat, e2) ->
+    | T_Ebinop (e1, T_Bconcat, e2) ->
         cp_expr vars p e1 ++
         pushq (reg rax) ++
         cp_expr vars p e2 ++
@@ -42,38 +39,38 @@ let cp_fichier f =
         movq (ilab "Concat.0") (reg rdi) ++
         movq (imm 0) (reg rax) ++
         call "sprintf"
-    | T_Ebinop (e1, (Beq | Bneq | Blt | Ble | Bgt | Bge as op), e2) ->  
+    | T_Ebinop (e1, (T_Beq | T_Bneq | T_Blt | T_Ble | T_Bgt | T_Bge as op), e2) ->  
         cp_expr vars p e1 ++
         pushq (reg rax) ++
         cp_expr vars p e2 ++
         popq rbx ++
         cmpq (reg rax) (reg rbx) ++
         begin match op with
-          | Beq -> sete | Bneq -> setne
-          | Blt -> setl | Ble -> setle
-          | Bgt -> setg | Bge -> setge
+          | T_Beq -> sete | T_Bneq -> setne
+          | T_Blt -> setl | T_Ble -> setle
+          | T_Bgt -> setg | _ -> setge
         end (reg bl) ++
         movq (imm 0) (reg rax) ++
         movb (reg bl) (reg al)
-    | T_Ebinop (e1, (Badd | Bsub | Bmul | Bdiv | Bmod as op), e2) ->
+    | T_Ebinop (e1, (T_Band | T_Bor as op), e2) ->
+        let lbl = (match op with T_Bor -> "Or" | _ -> "And") ^ new_lbl () in
+        cp_expr vars p e1 ++
+        testq (reg rax) (reg rax) ++
+        (match op with T_Bor -> jne | _ -> je) lbl ++
+        cp_expr vars p e2 ++
+        label lbl
+    | T_Ebinop (e1, (_  as op), e2) ->
         cp_expr vars p e1 ++
         pushq (reg rax) ++
         cp_expr vars p e2 ++
         movq (reg rax) (reg rbx) ++
         popq rax ++
         begin match op with
-          | Badd -> addq (reg rbx) (reg rax)
-          | Bsub -> subq (reg rbx) (reg rax)
-          | Bmul -> imulq (reg rbx) (reg rax)
-          | Bdiv -> idivq (reg rbx)
-          | Bmod -> idivq (reg rbx) ++ movq (reg rdx) (reg rax) end
-    | T_Ebinop (e1, (Band | Bor as op), e2) ->
-        let lbl = (match op with Band -> "And" | Bor -> "Or") ^ new_lbl () in
-        cp_expr vars p e1 ++
-        testq (reg rax) (reg rax) ++
-        (match op with Band -> je | Bor -> jne) lbl ++
-        cp_expr vars p e2 ++
-        label lbl
+          | T_Badd_int -> addq (reg rbx) (reg rax)
+          | T_Bsub -> subq (reg rbx) (reg rax)
+          | T_Bmul -> imulq (reg rbx) (reg rax)
+          | T_Bdiv -> idivq (reg rbx)
+          | _ -> idivq (reg rbx) ++ movq (reg rdx) (reg rax) end
     | T_Eint n -> movq (imm n) (reg rax)
     | T_Ebool b -> movq (imm (if b then 1 else 0)) (reg rax)
     | T_Estr s -> 
@@ -82,7 +79,7 @@ let cp_fichier f =
         movq (ilab lbl) (reg rax)
     | T_Ethis -> movq (ind ~ofs:16 rbp) (reg rax)
     | T_Enew (id, l) ->
-        let c = IdMap.find id champs in
+        let c = Hashtbl.find champs id in
         let aux cd e =
           cp_expr vars p e ++
           pushq (reg rax) ++
@@ -94,7 +91,7 @@ let cp_fichier f =
         pushq (reg rax) ++
         movq (ilab id) (ind rax) ++
         movq (ind rax) (reg rbx) ++
-        call (ind rbx) ++
+        call_star (ind rbx) ++
         popq rax) l			
     | T_Eacces_meth (a, l) ->
         let aux cd e =
@@ -110,13 +107,13 @@ let cp_fichier f =
         cp_expr vars p e0 ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Print.0") (reg rdi) ++
-        movq (imm O) (reg rax) ++
+        movq (imm 0) (reg rax) ++
         call "printf"
     | T_Eprintln e0 ->
         cp_expr vars p e0 ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Println.0") (reg rdi) ++
-        movq (imm O) (reg rax) ++
+        movq (imm 0) (reg rax) ++
         call "printf"
     | T_Estr_equal (e1, e2) -> 
         cp_expr vars p e1 ++
@@ -126,22 +123,22 @@ let cp_fichier f =
         movq (reg rax) (reg rdi) ++
         call "String.equals.0"
 
-  and cp_acces vars p a = match a.desc with
+  and cp_acces vars p a = match a with
     | T_Aident id ->
-        let n = Hashtbl.find var id in
-        leaq (ind ~ofs:n rbp) (reg rax)
+        let n = IdMap.find id vars in
+        leaq (ind ~ofs:n rbp) rax
     | T_Achemin_meth (es, id) ->
         let n = Hashtbl.find meths id in
           cp_expr vars p es ++
           pushq (reg rax) ++
-          movq (ind rax) (reg rbx)
-          call (ind ~ofs:n rbx) ++
+          movq (ind rax) (reg rbx) ++
+          call_star (ind ~ofs:n rbx) ++
           popq rbx
     | T_Achemin_ch ((es, tp), id) ->
-        let cls = IdMap.find tp champs in
-        let n = Hashtbl.find cls id in
+        let cls = Hashtbl.find champs tp in
+        let n = IdMap.find id cls in
         cp_expr vars p es ++
-        movq (ind ~ods:n rax) (reg rax) 
+        movq (ind ~ofs:n rax) (reg rax) 
 
   and cp_instruc (cd, vars, p) st = match st with
     | T_Inil -> cd, vars, p 
@@ -154,10 +151,10 @@ let cp_fichier f =
         popq rbx ++
         movq (reg rax) (ind rbx),
         vars, p
-    | T_Idef (jt, id) -> decr p ;
+    | T_Idef id -> 
         cd ++ pushq (imm 0),
         IdMap.add id p vars, p-8
-    | T_Idef_init (jt, id, e) ->
+    | T_Idef_init (id, e) ->
         cd ++
         cp_expr vars p e ++
         pushq (reg rax),
@@ -173,7 +170,7 @@ let cp_fichier f =
           je lbl2
         in
         let cd1, v1, p1 = cp_instruc (cd0, vars, p) s1 in
-        let cd2 = cd1 ++ jmp lbl1 += label lbl2 in
+        let cd2 = cd1 ++ jmp lbl1 ++ label lbl2 in
         let cd3, v2, p2 = cp_instruc (cd2, v1, p1) s2 in
         cd3 ++ label lbl1, v2, p2
     | T_Iwhile (e, s) ->
@@ -188,34 +185,35 @@ let cp_fichier f =
           je lbl2
         in
         let cd1, v1, p1 = cp_instruc (cd0, vars, p) s in
-        cd1 ++ jmp lbl1 += label lbl2, v1, p1
+        cd1 ++ jmp lbl1 ++ label lbl2, v1, p1
     | T_Ibloc l ->
         let cd0, _, _ = List.fold_left cp_instruc (cd, vars, p) l in
         cd0, vars, p
     | T_Ireturn opt ->
         cd ++ cp_expr vars p
-        (match opt with None -> T_Enull | Some -> e) ++
+        (match opt with None -> T_Enull | Some e -> e) ++
         leave ++ ret, vars, p
   in
 
-  let text_meths,  _, _ =
+  let text_meths =
     let aux key info t =
       let k = ref 2 in
-      let lmbd id v = incr k ; IdMap.add id (!k*8) v in
-      let vars = List.fold_left lmbd IdMap.empty info.params in
+      let aux1 v id = incr k ; IdMap.add id (!k*8) v in
+      let vars = List.fold_left aux1 IdMap.empty info.params in
       let lbl = fst key ^ "." ^ snd key in
       let cd = t ++ label lbl in
-      List.fold_left cp_instruc (cd, vars, -8) l
-    in Hashtbl.fold aux f.tbl_meth nop
+      let cd0, _, _ = List.fold_left cp_instruc (cd, vars, -8) info.body in
+      cd0
+    in Hashtbl.fold aux f.tbl_meth nop 
   in
 
   let text_main, _, _ =
-    List.fold cp_instruc (nop, IdMap.empty, -8) f.body_main
+    List.fold_left cp_instruc (nop, IdMap.empty, -8) f.main_body
   in
 
   let data_setr =
-    let aux s d = d ++ label ("String."^s) ++ strinf s in
-    IdSet.fold aux setr nop
+    let aux s d = d ++ label ("String."^s) ++ string s in
+    IdSet.fold aux !setr nop
   in
 
   let text_cons =
@@ -223,20 +221,22 @@ let cp_fichier f =
       | None -> t
       | Some m -> 
           let k = ref 2 in
-          let lmbd id v = incr k ; IdMap.add id (!k*8) v in
-          let vars = List.fold_left lmbd IdMap.empty info.params in
+          let aux1 v id = incr k ; IdMap.add id (!k*8) v in
+          let vars = List.fold_left aux1 IdMap.empty m.params in
           let lbl = c.nom ^ ".new" in
           let cd = t ++ label lbl in
-          List.fold_left cp_instruc (cd, vars, -8) l
+          let cd0, _, _  = List.fold_left cp_instruc (cd, vars, -8) m.body in
+          cd0
     in List.fold_left aux nop f.classes
   in
 
   let data_descr =
     let aux d c =
-      let lmbd k x = max (Hashtbl.find meths x) k in
-      let n = List.fold_left lmbd 0 c.cle_methodes in
+      let aux1 k x = max (Hashtbl.find meths (snd x)) k in
+      let n = List.fold_left aux1 0 c.cle_methodes in
       let t = Array.make n None in
-      List.iter (fun x -> t.(Hashtbl.find meths x) <- Some x) c.cle_methodes ;
+      let aux2 x = t.(Hashtbl.find meths (snd x)) <- Some x in
+      List.iter aux2 c.cle_methodes ;
       Array.fold_left ( fun dt opt -> match opt with
                           | None -> dt ++ dquad [0]
                           | Some (x, y) -> dt ++ address [x^"."^y] ) nop t

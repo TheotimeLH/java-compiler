@@ -1429,11 +1429,13 @@ let type_fichier l_ci =
         (* Finalement pour la production de code, nous avons décidé de séparer
            la méthode equals de la classe String des autres ici.
            Dans les faits, ce serait mieux de tout refaire au sujet des String. *)
-        if begin match jo_acces,dacces.desc with
-        | Some (Jntype {desc=Ntype("String",[])}) , Achemin (_,"equals") -> true
+        let typed_expr_str = ref (T_Estr "") in
+        if begin match jo_acces,typed_acces with
+        | Some (Jntype {desc=Ntype("String",[])}) , T_Achemin_meth (typed_expr,"equals") 
+          -> typed_expr_str := typed_expr ; true
         | _ -> false end
         then ((nom_var,jo_acces,env_vars''), 
-          T_Estr_equal (T_Eacces_var typed_acces , List.hd typed_l_expr))
+          T_Estr_equal (!typed_expr_str , List.hd typed_l_expr))
         else ((nom_var,jo_acces,env_vars''),
           T_Eacces_meth (typed_acces , typed_l_expr))
         end

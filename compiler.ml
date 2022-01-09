@@ -10,13 +10,13 @@ let (+++) (t1, d1) (t2, d2) = t1 ++ t2, d1 ++ d2
 let setr = ref IdSet.empty
 let size c = Hashtbl.length c * 8 + 8
 
-let nllb = ref 0
+let nlbl = ref 0
 let new_lbl () =
   incr nlbl ;
   Format.sprintf ".%d" !nlbl
 
 let cp_fichier f =
-  let meths, champs = mk_offset_tbl f.classes in
+  let meths, champs = mk_offset_tbl f.classes f.node_obj in
 
   let rec cp_expr vars p e = match e with
     | T_Enull -> movq (imm 0) (reg rax)

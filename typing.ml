@@ -1088,7 +1088,7 @@ let type_fichier l_ci =
      ou un parent si c'est un ntype. *)
 
   let rec vraie_c env_typage id_ct = 
-    if IdSet.mem env_typage_global.c id_c then id_c
+    if IdSet.mem id_ct env_typage_global.c then id_ct
     else (
       let dc_mere = List.hd (Hashtbl.find env_typage.extends id_ct) in
       let Ntype(id_m,_) = dc_mere.desc in
@@ -1248,9 +1248,9 @@ let type_fichier l_ci =
     | Enull -> (Muet,Some Jtypenull,env_vars),T_Enull
     | Esimple dexpr_s -> jtype_of_expr_s dexpr_s.loc env_typage env_vars dexpr_s.desc
     | Eequal (dacces,dexpr) -> (* permet a = b = c qui change b en c puis a en b *)
-        let info_typage, typed_ae = 
+        let info_typage, (typed_a,typed_e) = 
           acces_equal_expr env_typage env_vars dacces dexpr loc_expr in
-        info_typage , (I_Eequal typed_ae)
+        info_typage , (T_Eequal (typed_a,typed_e))
     | Eunop (unop,dexpr) -> 
         let (_,jo_expr,env_vars'),typed_expr = 
           jtype_of_expr dexpr.loc env_typage env_vars dexpr.desc in
@@ -1292,9 +1292,9 @@ let type_fichier l_ci =
           | (Jntype {desc=Ntype("String",[])} as s),Badd,(Jntype {desc=Ntype("String",[])})  
             -> s,T_Bconcat
           | (Jntype {desc=Ntype("String",[])} as s),Badd,Jint 
-            -> typed_expr2 <- T_Eunop (T_Uconvert , !typed_expr2) ; s,T_Bconcat
+            -> typed_expr2 := T_Eunop (T_Uconvert , !typed_expr2) ; s,T_Bconcat
           | Jint,Badd,(Jntype {desc=Ntype("String",[])} as s)  
-            -> typed_expr1 <- T_Eunop (T_Uconvert , !typed_expr1) ; s,T_Bconcat
+            -> typed_expr1 := T_Eunop (T_Uconvert , !typed_expr1) ; s,T_Bconcat
           | Jtypenull,Beq,Jntype _  | Jntype _,Beq,Jtypenull  -> Jboolean,T_Beq
           | Jtypenull,Bneq,Jntype _ | Jntype _,Bneq,Jtypenull -> Jboolean,T_Bneq
           | _,Beq,_ | _,Bneq,_ ->
@@ -1314,7 +1314,7 @@ let type_fichier l_ci =
         | _,_ -> raise (Typing_error {loc = loc_expr ;
             msg = "Les opérations ne s'appliquent pas avec des expressions de type void"})
         in
-        (Muet,Some jt,env_typage'') , (T_Ebinop (!typed_expr1 , typed_op , !typed_expr2))
+        (Muet,Some jt,env_vars'') , (T_Ebinop (!typed_expr1 , typed_op , !typed_expr2))
 
 
 
@@ -1509,11 +1509,11 @@ let type_fichier l_ci =
         info_typage , (T_Isimple typed_expr) :: typed_list
 
       | Iequal (dacces,dexpr) ->
-        let (_,_,env_vars'),typed_ae = 
+        let (_,_,env_vars'),(typed_a,typed_e) = 
           acces_equal_expr env_typage env_vars dacces dexpr dinstr.loc in
         let info_typage , typed_list = 
           verifie_bloc_instrs type_r loc_bloc env_typage env_vars' q in
-        info_typage , (T_Iequal typed_ae) :: typed_list
+        info_typage , (T_Iequal (typed_a,typed_e)) :: typed_list
       
       | Idef (dj,id) ->
         begin match IdMap.find_opt id env_vars with

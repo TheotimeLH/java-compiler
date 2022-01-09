@@ -45,7 +45,7 @@ let mk_offset_tbl (lc : ty_classe list) node_obj =
 
   (* En plus de l'arbre des héritages, on a besoin des infos sur les classes,
      donc on transfert lc dans une table. *)
-  let len_lc = List.lenght lc in
+  let len_lc = List.length lc in
   let tab_c = Hashtbl.create len_lc in
   List.iter (fun (c : ty_classe) -> Hashtbl.add tab_c c.nom c) lc ;
   let graphe_tmp : (ident,node_meth_tmp) Hashtbl.t  = Hashtbl.create 15 in
@@ -91,7 +91,7 @@ let mk_offset_tbl (lc : ty_classe list) node_obj =
     let nb_noeuds = 
       if node_c.succ = [] then (
         (* On arrive en bout de course, on défini le maxi *)
-        IdMap.iter (fun _ node_tmp -> node_tmp.maxi <- max node_tmp.maxi nb_meth) co_meth ;
+        IdMap.iter (fun _ node_tmp -> node_tmp.maxi <- max node_tmp.maxi nb_meth) new_map ;
         1 )
       else (
         List.fold_left 
@@ -107,7 +107,7 @@ let mk_offset_tbl (lc : ty_classe list) node_obj =
         let node_tmp = IdMap.find id_m new_map in
         node_tmp.nb_c <- nb_noeuds ;
         Hashtbl.add graphe_tmp id_m node_tmp ;
-        Hashtbl.add tab_num id_m (num ()) 
+        Hashtbl.add tbl_num id_m (num ()) 
       | Some node_tmp ->
         let node_tmp' = IdMap.find id_m new_map in
         node_tmp.vg <- IdSet.union node_tmp.vg node_tmp'.vg ;
@@ -118,6 +118,7 @@ let mk_offset_tbl (lc : ty_classe list) node_obj =
       !vrai_new_meth ;
     nb_noeuds 
   in
+  ignore (parcours_arbre IdMap.empty IdSet.empty IdMap.empty 0 node_obj) ;
 
   (* On a désormais le graphe_tmp : (ident , node_meth_tmp) Hashtbl.t *)
   (* On construit le graphe numéroté associé *)
@@ -127,10 +128,10 @@ let mk_offset_tbl (lc : ty_classe list) node_obj =
   let importance = Array.make nb_meth 0 in (* La priorité accorder à chaque sommet *)
   Hashtbl.iter 
    (fun id_m node_tmp ->
-     let num_m = Hashtbl.find tab_num id_m in
+     let num_m = Hashtbl.find tbl_num id_m in
      t_id_m.(num_m) <- id_m ;
      t_g.(num_m) <- IdSet.fold 
-       (fun id_v vg_m -> (Hashtbl.find tab_num id_v) :: vg_m)
+       (fun id_v vg_m -> (Hashtbl.find tbl_num id_v) :: vg_m)
        node_tmp.vg [] ;
      importance.(num_m) <- node_tmp.nb_c * (node_tmp.maxi - node_tmp.mini) 
      (* Mon heristique *)
@@ -149,7 +150,7 @@ let mk_offset_tbl (lc : ty_classe list) node_obj =
     !k
   in
 
-  let offset_meth : (ident,int) Hashtbl.t = Hashtbl.create nb_meth 0 in
+  let offset_meth : (ident,int) Hashtbl.t = Hashtbl.create nb_meth in
 
   let colorie x = 
     let c = min_coul t_g.(x) in

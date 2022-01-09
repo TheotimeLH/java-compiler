@@ -1,5 +1,5 @@
 
-all: clean pjava
+all: pjava
 
 tests: syntax typing exec_good
 
@@ -24,7 +24,8 @@ exec_good:
 
 pjava:
 	dune build main.exe
-	cp _build/default/main.exe pjava
+	rm -f $@
+	cp _build/default/main.exe $@
 
 clean:
 	dune clean

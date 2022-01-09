@@ -130,8 +130,8 @@ type ty_expr =
 
 and ty_acces =
   | T_Aident of ident
-  | T_Achemin_meth of ty_expr * ident * ident
-  | T_Achemin_ch of ty_expr * ident * ident
+  | T_Achemin_meth of ty_expr * ident
+  | T_Achemin_ch of (ty_expr * ident) * ident
 
 type ty_instr = 
   | T_Inil
@@ -162,6 +162,7 @@ type ty_tbl_meth = (ty_cle_meth , ty_meth) Hashtbl.t
 
 type ty_all =
 { classes : ty_classe list ; (* et dans un ordre topologique *)
+  main_body : ty_instr list ;
   tbl_meth : ty_tbl_meth ;
   node_obj : node (* On récupère ainsi tout l'arbre d'héritage des classes *)
 }

@@ -142,7 +142,7 @@ let cp_fichier f =
         let cls = Hashtbl.find champs tp in
         let n = IdMap.find id cls in
         cp_expr vars p es ++
-        movq (ind ~ofs:n rax) (reg rax) 
+        leaq (ind ~ofs:n rax) rax 
 
   and cp_instruc (cd, vars, p) st = match st with
     | T_Inil -> cd, vars, p 
@@ -241,10 +241,10 @@ let cp_fichier f =
 
   let data_descr =
     let aux d c =
-      let aux1 k x = max (Hashtbl.find meths (snd x)) k in
+      let aux1 k x = max (Hashtbl.find meths (snd x)/8) k in
       let n = List.fold_left aux1 0 c.cle_methodes in
       let t = Array.make n None in
-      let aux2 x = t.(Hashtbl.find meths (snd x)-1) <- Some x in
+      let aux2 x = t.(Hashtbl.find meths (snd x)/8-1) <- Some x in
       List.iter aux2 c.cle_methodes ;
       d ++ label c.nom ++ address
       (match c.constructeur with None -> ["new"] | Some _ -> [c.nom^".new"]) ++

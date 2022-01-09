@@ -145,8 +145,8 @@ let mk_offset_tbl (lc : ty_classe list) node_obj =
   let couleur = Array.make nb_meth (-1) in
   let min_coul vg =
     let coul_prises = IntSet.of_list (List.map (fun i -> couleur.(i)) vg) in
-    let k = ref 1 in
-    while IntSet.mem !k coul_prises do incr k done ;
+    let k = ref 8 in
+    while IntSet.mem !k coul_prises do k := !k +8 done ;
     !k
   in
 

@@ -15,34 +15,42 @@ let new_lbl () =
 let cp_fichier f =
   let meths, champs = mk_offset_tbl f.classes f.node_obj in
 
-  let rec cp_expr vars p e = match e with
+  let rec cp_expr vars e = match e with
     | T_Enull -> movq (imm 0) (reg rax)
     | T_Eequal (a, e0) ->
-        cp_acces vars p a ++ 
+        cp_acces vars a ++ 
         pushq (reg rax) ++
-        cp_expr vars p e0 ++
+        cp_expr vars e0 ++
         popq rbx ++
         movq (reg rax) (ind rbx)
-    | T_Eunop (T_Uneg, e0) -> cp_expr vars p e0 ++ negq (reg rax)
-    | T_Eunop (T_Unot ,e0) -> cp_expr vars p e0 ++ notq (reg rax)
+    | T_Eunop (T_Uneg, e0) -> cp_expr vars e0 ++ negq (reg rax)
+    | T_Eunop (T_Unot ,e0) -> cp_expr vars e0 ++ notq (reg rax)
     | T_Eunop (T_Uconvert, e0) ->
-        cp_expr vars p e0 ++
+        cp_expr vars e0 ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Convert.0") (reg rdi) ++
-        movq (imm 0) (reg rax)
+        call "Align.0" ++
+        subq (reg rbx) (reg rsp) ++
+        movq (imm 0) (reg rax) ++
+        call "sprintf" ++
+        addq (reg rbx) (reg rsp)
     | T_Ebinop (e1, T_Bconcat, e2) ->
-        cp_expr vars p e1 ++
+        cp_expr vars e1 ++
         pushq (reg rax) ++
-        cp_expr vars p e2 ++
-        popq rdx ++
+        cp_expr vars e2 ++
+        popq rcx ++
+        call "Align.0" ++
+        subq (reg rbx) (reg rsp) ++
+        movq (reg rcx) (reg rdx) ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Concat.0") (reg rdi) ++
         movq (imm 0) (reg rax) ++
-        call "sprintf"
+        call "sprintf" ++
+        addq (reg rbx) (reg rsp)
     | T_Ebinop (e1, (T_Beq | T_Bneq | T_Blt | T_Ble | T_Bgt | T_Bge as op), e2) ->  
-        cp_expr vars p e1 ++
+        cp_expr vars e1 ++
         pushq (reg rax) ++
-        cp_expr vars p e2 ++
+        cp_expr vars e2 ++
         popq rbx ++
         cmpq (reg rax) (reg rbx) ++
         begin match op with
@@ -54,23 +62,26 @@ let cp_fichier f =
         movb (reg bl) (reg al)
     | T_Ebinop (e1, (T_Band | T_Bor as op), e2) ->
         let lbl = (match op with T_Bor -> "Or" | _ -> "And") ^ new_lbl () in
-        cp_expr vars p e1 ++
+        cp_expr vars e1 ++
         testq (reg rax) (reg rax) ++
         (match op with T_Bor -> jne | _ -> je) lbl ++
-        cp_expr vars p e2 ++
+        cp_expr vars e2 ++
         label lbl
     | T_Ebinop (e1, (_  as op), e2) ->
-        cp_expr vars p e1 ++
+        cp_expr vars e1 ++
         pushq (reg rax) ++
-        cp_expr vars p e2 ++
+        cp_expr vars e2 ++
         movq (reg rax) (reg rbx) ++
         popq rax ++
         begin match op with
           | T_Badd_int -> addq (reg rbx) (reg rax)
           | T_Bsub -> subq (reg rbx) (reg rax)
           | T_Bmul -> imulq (reg rbx) (reg rax)
-          | T_Bdiv -> idivq (reg rbx)
-          | _ -> idivq (reg rbx) ++ movq (reg rdx) (reg rax) end
+          | T_Bdiv -> movq (imm 0) (reg rdx) ++ idivq (reg rbx)
+          | _ ->
+              movq (imm 0) (reg rdx) ++
+              idivq (reg rbx) ++
+              movq (reg rdx) (reg rax) end
     | T_Eint n -> movq (imm n) (reg rax)
     | T_Ebool b -> movq (imm (if b then 1 else 0)) (reg rax)
     | T_Estr s -> 
@@ -85,7 +96,7 @@ let cp_fichier f =
     | T_Enew (id, l) ->
         let c = Hashtbl.find champs id in
         let aux cd e =
-          cp_expr vars p e ++
+          cp_expr vars e ++
           pushq (reg rax) ++
           cd ++
           popq rbx
@@ -99,41 +110,47 @@ let cp_fichier f =
         popq rax) l			
     | T_Eacces_meth (a, l) ->
         let aux cd e =
-          cp_expr vars p e ++
+          cp_expr vars e ++
           pushq (reg rax) ++
           cd ++
           popq rcx
-        in List.fold_left aux (cp_acces vars p a) l
+        in List.fold_left aux (cp_acces vars a) l
     | T_Eacces_var a ->
-        cp_acces vars p a ++
+        cp_acces vars a ++
         movq (ind rax) (reg rax)
     | T_Eprint e0 ->
-        cp_expr vars p e0 ++
+        cp_expr vars e0 ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Print.0") (reg rdi) ++
+        call "Align.0" ++
+        subq (reg rbx) (reg rsp) ++
         movq (imm 0) (reg rax) ++
-        call "printf"
+        call "printf" ++
+        addq (reg rbx) (reg rsp)
     | T_Eprintln e0 ->
-        cp_expr vars p e0 ++
+        cp_expr vars e0 ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Println.0") (reg rdi) ++
+        call "Align.0" ++
+        subq (reg rbx) (reg rsp) ++
         movq (imm 0) (reg rax) ++
-        call "printf"
+        call "printf" ++
+        addq (reg rbx) (reg rsp)
     | T_Estr_equal (e1, e2) -> 
-        cp_expr vars p e1 ++
+        cp_expr vars e1 ++
         pushq (reg rax) ++
-        cp_expr vars p e2 ++
+        cp_expr vars e2 ++
         popq rdi ++
-        movq (reg rax) (reg rdi) ++
+        movq (reg rax) (reg rsi) ++
         call "String.equals"
 
-  and cp_acces vars p a = match a with
+  and cp_acces vars a = match a with
     | T_Aident id ->
         let n = IdMap.find id vars in
         leaq (ind ~ofs:n rbp) rax
     | T_Achemin_meth (es, id) ->
         let n = Hashtbl.find meths id in
-          cp_expr vars p es ++
+          cp_expr vars es ++
           pushq (reg rax) ++
           movq (ind rax) (reg rbx) ++
           call_star (ind ~ofs:n rbx) ++
@@ -141,17 +158,17 @@ let cp_fichier f =
     | T_Achemin_ch ((es, tp), id) ->
         let cls = Hashtbl.find champs tp in
         let n = IdMap.find id cls in
-        cp_expr vars p es ++
+        cp_expr vars es ++
         leaq (ind ~ofs:n rax) rax 
 
   and cp_instruc (cd, vars, p) st = match st with
     | T_Inil -> cd, vars, p 
-    | T_Isimple e -> cd ++ cp_expr vars p e, vars, p
+    | T_Isimple e -> cd ++ cp_expr vars e, vars, p
     | T_Iequal (a, e) ->
         cd ++
-        cp_acces vars p a ++ 
+        cp_acces vars a ++ 
         pushq (reg rax) ++
-        cp_expr vars p e ++
+        cp_expr vars e ++
         popq rbx ++
         movq (reg rax) (ind rbx),
         vars, p
@@ -160,7 +177,7 @@ let cp_fichier f =
         IdMap.add id p vars, p-8
     | T_Idef_init (id, e) ->
         cd ++
-        cp_expr vars p e ++
+        cp_expr vars e ++
         pushq (reg rax),
         IdMap.add id p vars, p-8
     | T_Iif (e, s1, s2) ->
@@ -169,7 +186,7 @@ let cp_fichier f =
         let lbl2 = "Else"^n in
         let cd0 =
           cd ++
-          cp_expr vars p e ++
+          cp_expr vars e ++
           testq (reg rax) (reg rax) ++
           je lbl2
         in
@@ -184,7 +201,7 @@ let cp_fichier f =
         let cd0 =
           cd ++
           label lbl1 ++
-          cp_expr vars p e ++
+          cp_expr vars e ++
           testq (reg rax) (reg rax) ++
           je lbl2
         in
@@ -194,7 +211,7 @@ let cp_fichier f =
         let cd0, _, _ = List.fold_left cp_instruc (cd, vars, p) l in
         cd0, vars, p
     | T_Ireturn opt ->
-        cd ++ cp_expr vars p
+        cd ++ cp_expr vars
         (match opt with None -> T_Enull | Some e -> e) ++
         leave ++ ret, vars, p
   in
@@ -212,7 +229,7 @@ let cp_fichier f =
         movq (reg rsp) (reg rbp)
       in
       let cd0, _, _ = List.fold_left cp_instruc (cd, vars, -8) info.body in
-      cd0
+      cd0 ++ leave ++ ret
     in Hashtbl.fold aux f.tbl_meth nop 
   in
 
@@ -255,13 +272,14 @@ let cp_fichier f =
   in
 
   let data_cstr =
-    let aux s n d = d ++ label ("string"^n) ++ string s in
+    let aux s n d = d ++ label ("string"^n) ++ string s ++ dquad [0] in
     IdMap.fold aux !cstr nop
   in
 
 	{ text =
 			globl "main" ++
 			label "main" ++
+      movq (reg rsp) (reg rbp) ++
 			text_main ++
       movq (imm 0) (reg rax) ++
 			label "new" ++
@@ -275,12 +293,21 @@ let cp_fichier f =
       movq (ind ~index:rcx rdi) (reg rbx) ++
       cmpq (reg rbx) (ind ~index:rcx rsi) ++
       jne "Fin.0" ++
+      addq (imm 1) (reg rcx) ++
       testq (reg rbx) (reg rbx) ++
       jne "Deb.0" ++
       movq (imm 1) (reg rax) ++
       label "Fin.0" ++
-      leave ++ ret ;
-		data =
+      leave ++ ret ++
+      label "Align.0" ++
+      movq (imm 0) (reg rdx) ++
+      movq (reg rsp) (reg rax) ++
+      movq (imm 16) (reg rbx) ++
+      idivq (reg rbx) ++
+      movq (imm 8) (reg rbx) ++
+      subq (reg rax) (reg rbx) ++
+      ret ;
+    data =
       data_descr ++
 			label "Convert.0" ++
 			string "%d" ++

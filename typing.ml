@@ -1361,9 +1361,10 @@ let type_fichier l_ci =
         verifie_bf (Jntype dn) env_typage ;
         let Ntype(id_c,l_ntypes) = dn.desc in
         if id_c = "Object"
-        then begin if l_ntypes = [] then (New , Some (Jntype dn),env_vars)
-            else raise (Typing_error {loc = dn.loc ;
-              msg = "Le constructeur Object() n'attend pas de paramètre"}) end
+        then begin if l_ntypes = [] 
+          then ((New , Some (Jntype dn),env_vars), T_Enew ("Object",[]))
+          else raise (Typing_error {loc = dn.loc ;
+            msg = "Le constructeur Object() n'attend pas de paramètre"}) end
         else begin match Hashtbl.find_opt c_constr id_c with
           | None -> raise (Typing_error {loc = dn.loc ;
               msg = id_c ^ " ne possède pas de constructeur, est-ce bien une classe \
@@ -1384,7 +1385,7 @@ let type_fichier l_ci =
         let print = ref "print" in
         let typed_expr_print = ref (T_Estr "") in
         if begin match dacces.desc with
-        | Achemin (dexpr_s,"print" as print') | Achemin (dexpr_s,"println" as print') ->
+        | Achemin (dexpr_s,print') when (print' = "print" || print' = "println") ->
           print := print' ;
           begin match dexpr_s.desc with
           | ESacces_var {desc = 
@@ -1449,7 +1450,7 @@ let type_fichier l_ci =
             msg = id ^ " n'est peut-être pas initialisée, il faut qu'elle soit plus \
                   clairement initialisée." })
         end ;
-        (nom_var,jo_acces,env_vars'),typed_acces
+        (nom_var,jo_acces,env_vars'),T_Eacces_var typed_acces
   in
   
 
@@ -1523,7 +1524,7 @@ let type_fichier l_ci =
           let env_vars' = IdMap.add id {jt = dj.desc ; init = false} env_vars in
           let info_typage , typed_list = 
             verifie_bloc_instrs type_r loc_bloc env_typage env_vars' q in
-          info_typage , (Idef id) :: typed_list
+          info_typage , (T_Idef id) :: typed_list
         end
 
       | Idef_init (dj,id,dexpr) ->
@@ -1658,7 +1659,7 @@ let type_fichier l_ci =
           let meth = dmeth.desc in
           let pro = meth.info.desc in
           let cle_meth = (id_c , pro.nom) in
-          let params_id = List.map (fun dp : param desc -> dp.desc.nom) pro.params in 
+          let params_id = List.map (fun (dp : param desc) -> dp.desc.nom) pro.params in 
           let type_retour = pro.typ in
           List.iter 
             (fun (dp : param desc) -> env_vars := 
@@ -1670,10 +1671,10 @@ let type_fichier l_ci =
           cle_methodes := cle_meth :: !cle_methodes 
       
       | Dconstr dconstr -> 
-          (* On pourrait faire une fonction auxiliaire, puisqu'on copie le cas précédent *)
+          (* On pourrait faire une fonction auxiliaire, on copie le cas précédent *)
           let env_vars = ref (IdMap.singleton "this" info_this) in
           let constr = dconstr.desc in
-          let params_id = List.map (fun dp : param desc -> dp.desc.nom) constr.params in 
+          let params_id = List.map (fun (dp : param desc) -> dp.desc.nom) constr.params in 
           List.iter 
             (fun (dp : param desc) -> env_vars := 
               IdMap.add dp.desc.nom {jt = dp.desc.typ.desc ; init = true} !env_vars )

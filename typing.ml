@@ -1652,7 +1652,7 @@ let type_fichier l_ci =
     (* Pour l'arbre de sortie : *)
     let methtab = Hashtbl.find env_typage_global.methodes id_c in
     let cle_methodes = Hashtbl.fold 
-      (fun id_m (info_m : info_methode) l_cle -> (id_m,info_m.id_ci)::l_cle)
+      (fun id_m (info_m : info_methode) l_cle -> (info_m.id_ci,id_m)::l_cle)
       methtab [] in
     let id_champs = ref [] in
     let constructeur = ref None in

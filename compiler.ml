@@ -24,22 +24,25 @@ let cp_fichier f =
         popq rbx ++
         movq (reg rax) (ind rbx)
     | T_Eunop (T_Uneg, e0) -> cp_expr vars e0 ++ negq (reg rax)
-    | T_Eunop (T_Unot ,e0) ->
-        cp_expr vars e0 ++
-        negq (reg rax) ++
-        addq (imm 1) (reg rax)
+    | T_Eunop (T_Unot ,e0) -> cp_expr vars e0 ++ notq (reg rax)
     | T_Eunop (T_Uconvert, e0) ->
         cp_expr vars e0 ++
-        movq (reg rax) (reg rsi) ++
-        movq (ilab "Convert.0") (reg rdi) ++
+        pushq (reg rax) ++
+        movq (imm 200) (reg rdi) ++
+        call "Malloc.0" ++
+        movq (reg rax) (reg rdi) ++
+        movq (ilab "Convert.0") (reg rsi) ++
         call "Sprintf.0"
     | T_Ebinop (e1, T_Bconcat, e2) ->
         cp_expr vars e1 ++
         pushq (reg rax) ++
         cp_expr vars e2 ++
+        pushq (reg rax) ++
+        imulq (imm 800) (reg rdi) ++
+        call "Malloc.0" ++
+        movq (reg rax) (reg rdi) ++
         popq rcx ++
-        movq (reg rax) (reg rsi) ++
-        movq (ilab "Concat.0") (reg rdi) ++
+        movq (ilab "Concat.0") (reg rsi) ++
         call "Sprintf.0"
     | T_Ebinop (e1, (T_Beq | T_Bneq | T_Blt | T_Ble | T_Bgt | T_Bge as op), e2) ->  
         cp_expr vars e1 ++
@@ -77,7 +80,7 @@ let cp_fichier f =
               idivq (reg rbx) ++
               movq (reg rdx) (reg rax) end
     | T_Eint n -> movq (imm n) (reg rax)
-    | T_Ebool b -> movq (imm (if b then 1 else 0)) (reg rax)
+    | T_Ebool b -> movq (imm (if b then (-1) else 0)) (reg rax)
     | T_Estr s -> 
         let lbl = "string"^
           begin try IdMap.find s !cstr 
@@ -250,7 +253,7 @@ let cp_fichier f =
       let aux2 x = t.(Hashtbl.find meths (snd x)/8-1) <- Some x in
       List.iter aux2 c.cle_methodes ;
       d ++ label c.nom ++ address
-      (match c.constructeur with None -> ["new"] | Some _ -> [c.nom^".new"]) ++
+      (match c.constructeur with None -> ["ret.0"] | Some _ -> [c.nom^".new"]) ++
       Array.fold_left ( fun dt opt -> match opt with
                           | None -> dt ++ dquad [0]
                           | Some (x, y) -> dt ++ address [x^"."^y] ) nop t
@@ -258,8 +261,8 @@ let cp_fichier f =
   in
 
   let data_cstr =
-    let aux s n d = d ++ label ("string"^n) ++ string s ++ dquad [0] in
-    IdMap.fold aux !cstr nop
+    let aux s n d = d ++ label ("string"^n) ++ string s
+    in IdMap.fold aux !cstr nop
   in
 
 	{ text =
@@ -269,11 +272,12 @@ let cp_fichier f =
       movq (reg rsp) (reg rbp) ++
 			text_main ++
       movq (imm 0) (reg rax) ++
-      leave ++
-			label "new" ++
-			ret ++
+      leave ++ 
+      label "ret.0" ++
+      ret ++
       text_cons ++
       text_meths ++
+
 			label "String.equals" ++
       movq (imm 0) (reg rcx) ++
       movq (imm 1) (reg rax) ++
@@ -287,6 +291,7 @@ let cp_fichier f =
       movq (imm 1) (reg rax) ++
       label "Fin.0" ++
       ret ++
+
       label "Align.0" ++
       movq (imm 0) (reg rdx) ++
       movq (reg rsp) (reg rax) ++
@@ -294,41 +299,46 @@ let cp_fichier f =
       idivq (reg rbx) ++
       movq (reg rdx) (reg rbx) ++
       ret ++
+      
       label "Sprintf.0" ++
       call "Align.0" ++
+      popq rdx ++
       testq (reg rbx) (reg rbx) ++
-      jne "spf.0" ++
+      jne "Sprintf.00" ++
       pushq (reg rbx) ++
-      label "spf.0" ++
-      movq (reg rcx) (reg rdx) ++
+      label "Sprintf.00" ++
+      pushq (reg rdi) ++
       call "sprintf" ++
+      popq rax ++
       testq (reg rbx) (reg rbx) ++
       jne "ret.0" ++
       popq rbx ++
       ret ++
+
       label "Printf.0" ++
       call "Align.0" ++
       testq (reg rbx) (reg rbx) ++
-      jne "pf.0" ++
+      jne "Printf.00" ++
       pushq (reg rbx) ++
-      label "pf.0" ++
+      label "Printf.00" ++
       call "printf" ++
       testq (reg rbx) (reg rbx) ++
       jne "ret.0" ++
       popq rbx ++
       ret ++
+
       label "Malloc.0" ++
       call "Align.0" ++
       testq (reg rbx) (reg rbx) ++
-      jne "mlc.0" ++
+      jne "Malloc.00" ++
       pushq (reg rbx) ++
-      label "mlc.0" ++
+      label "Malloc.00" ++
       call "malloc" ++
       testq (reg rbx) (reg rbx) ++
       jne "ret.0" ++
       popq rbx ++
-      label "ret.0" ++
       ret ;
+
     data =
       data_descr ++
 			label "Convert.0" ++

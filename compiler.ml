@@ -24,7 +24,10 @@ let cp_fichier f =
         popq rbx ++
         movq (reg rax) (ind rbx)
     | T_Eunop (T_Uneg, e0) -> cp_expr vars e0 ++ negq (reg rax)
-    | T_Eunop (T_Unot ,e0) -> cp_expr vars e0 ++ notq (reg rax)
+    | T_Eunop (T_Unot ,e0) ->
+        cp_expr vars e0 ++
+        negq (reg rax) ++
+        addq (imm 1) (reg rax)
     | T_Eunop (T_Uconvert, e0) ->
         cp_expr vars e0 ++
         movq (reg rax) (reg rsi) ++
@@ -283,7 +286,7 @@ let cp_fichier f =
       jne "Deb.0" ++
       movq (imm 1) (reg rax) ++
       label "Fin.0" ++
-      leave ++ ret ++
+      ret ++
       label "Align.0" ++
       movq (imm 0) (reg rdx) ++
       movq (reg rsp) (reg rax) ++

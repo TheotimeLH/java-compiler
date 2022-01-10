@@ -12,6 +12,10 @@ let new_lbl () =
   incr nlbl ;
   Format.sprintf ".%d" !nlbl
 
+let rec free_stack n = match n with
+    | 0 -> nop
+    | _ -> popq rbx ++ free_stack (n-8)
+
 let cp_fichier f =
   let meths, champs = mk_offset_tbl f.classes f.node_obj in
 
@@ -179,10 +183,15 @@ let cp_fichier f =
           testq (reg rax) (reg rax) ++
           je lbl2
         in
-        let cd1, v1, p1 = cp_instruc (cd0, vars, p) s1 in
-        let cd2 = cd1 ++ jmp lbl1 ++ label lbl2 in
-        let cd3, v2, p2 = cp_instruc (cd2, v1, p1) s2 in
-        cd3 ++ label lbl1, v2, p2
+        let cd1, _, p1 = cp_instruc (cd0, vars, p) s1 in
+        let cd2 =
+          cd1 ++
+          free_stack (p-p1) ++
+          jmp lbl1 ++
+          label lbl2
+        in
+        let cd3, _, p2 = cp_instruc (cd2, vars, p) s2 in
+        cd3 ++ free_stack (p-p2) ++ label lbl1, vars, p
     | T_Iwhile (e, s) ->
         let n = new_lbl () in
         let lbl1 = "Deb"^n in
@@ -195,10 +204,14 @@ let cp_fichier f =
           je lbl2
         in
         let cd1, v1, p1 = cp_instruc (cd0, vars, p) s in
-        cd1 ++ jmp lbl1 ++ label lbl2, v1, p1
+        cd1 ++
+        free_stack (p-p1) ++
+        jmp lbl1 ++
+        label lbl2,
+        vars, p
     | T_Ibloc l ->
-        let cd0, _, _ = List.fold_left cp_instruc (cd, vars, p) l in
-        cd0, vars, p
+        let cd0, _, p0 = List.fold_left cp_instruc (cd, vars, p) l in
+        cd0 ++ free_stack (p-p0), vars, p
     | T_Ireturn opt ->
         cd ++ cp_expr vars
         (match opt with None -> T_Enull | Some e -> e) ++
@@ -240,7 +253,7 @@ let cp_fichier f =
             pushq (reg rbp) ++ 
             movq (reg rsp) (reg rbp)
           in
-          let cd0, _, _  = List.fold_left cp_instruc (cd, vars, -8) m.body in
+          let cd0, _, _ = List.fold_left cp_instruc (cd, vars, -8) m.body in
           cd0 ++ leave ++ ret
     in List.fold_left aux nop f.classes
   in
@@ -253,7 +266,9 @@ let cp_fichier f =
       let aux2 x = t.(Hashtbl.find meths (snd x)/8-1) <- Some x in
       List.iter aux2 c.cle_methodes ;
       d ++ label c.nom ++ address
-      (match c.constructeur with None -> ["ret.0"] | Some _ -> [c.nom^".new"]) ++
+      ( match c.constructeur
+          | with None -> ["ret.0"]
+          | Some _ -> [c.nom^".new"] ) ++
       Array.fold_left ( fun dt opt -> match opt with
                           | None -> dt ++ dquad [0]
                           | Some (x, y) -> dt ++ address [x^"."^y] ) nop t

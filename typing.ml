@@ -1650,7 +1650,10 @@ let type_fichier l_ci =
       { jt = Jntype {loc = loc_c ; desc = Ntype (id_c , params_dn)} ; init = true} in
     (* this est une variable spéciale, de type C<T1,...,Tk> *)
     (* Pour l'arbre de sortie : *)
-    let cle_methodes = ref [] in
+    let methtab = Hashtbl.find env_typage_global.methodes id_c in
+    let cle_methodes = Hashtbl.fold 
+      (fun id_m (info_m : info_methode) l_cle -> (id_m,info_m.id_ci)::l_cle)
+      methtab [] in
     let id_champs = ref [] in
     let constructeur = ref None in
 
@@ -1669,8 +1672,7 @@ let type_fichier l_ci =
             pro.params ;
           let typed_list_instrs = verifie_bloc_instrs_effectif 
             type_retour decl.loc env_typage !env_vars meth.body in
-          Hashtbl.add tbl_meth cle_meth {params = params_id ; body = typed_list_instrs} ;
-          cle_methodes := cle_meth :: !cle_methodes 
+          Hashtbl.add tbl_meth cle_meth {params = params_id ; body = typed_list_instrs}
       
       | Dconstr dconstr -> 
           (* On pourrait faire une fonction auxiliaire, on copie le cas précédent *)
@@ -1686,7 +1688,7 @@ let type_fichier l_ci =
           constructeur := Some {params = params_id ; body = typed_list_instrs}
     in
     List.iter verifie_decl body ;
-    { nom = id_c ; cle_methodes = !cle_methodes ; 
+    { nom = id_c ; cle_methodes = cle_methodes ; 
       id_champs = !id_champs ; constructeur = !constructeur }
   in
  

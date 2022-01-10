@@ -70,6 +70,7 @@ let mk_offset_tbl (lc : ty_classe list) node_obj =
     Hashtbl.add offset_ch c.nom map_ch ;
     (* LES METHODES *)
     let new_meth = IdSet.of_list (List.map (fun (_,id_m) -> id_m) c.cle_methodes) in
+    let new_meth = IdSet.diff new_meth co_meth in
     let co_meth = IdSet.union co_meth new_meth in
     let nb_meth = IdSet.cardinal co_meth in
     let vrai_new_meth = ref [] in

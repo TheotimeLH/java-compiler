@@ -29,18 +29,15 @@ let cp_fichier f =
         cp_expr vars e0 ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Convert.0") (reg rdi) ++
-        movq (imm 0) (reg rax) ++
-        call "sprintf"
+        call "Sprintf.0"
     | T_Ebinop (e1, T_Bconcat, e2) ->
         cp_expr vars e1 ++
         pushq (reg rax) ++
         cp_expr vars e2 ++
         popq rcx ++
-        movq (reg rcx) (reg rdx) ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Concat.0") (reg rdi) ++
-        movq (imm 0) (reg rax) ++
-        call "sprintf" 
+        call "Sprintf.0"
     | T_Ebinop (e1, (T_Beq | T_Bneq | T_Blt | T_Ble | T_Bgt | T_Bge as op), e2) ->  
         cp_expr vars e1 ++
         pushq (reg rax) ++
@@ -96,7 +93,7 @@ let cp_fichier f =
           popq rbx
         in List.fold_left aux (
         movq (imm (size c)) (reg rdi) ++
-        call "malloc" ++
+        call "Malloc.0" ++
         pushq (reg rax) ++
         movq (ilab id) (ind rax) ++
         movq (ind rax) (reg rbx) ++
@@ -116,14 +113,12 @@ let cp_fichier f =
         cp_expr vars e0 ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Print.0") (reg rdi) ++
-        movq (imm 0) (reg rax) ++
-        call "printf"
+        call "Printf.0"
     | T_Eprintln e0 ->
         cp_expr vars e0 ++
         movq (reg rax) (reg rsi) ++
         movq (ilab "Println.0") (reg rdi) ++
-        movq (imm 0) (reg rax) ++
-        call "printf"
+        call "Printf.0"
     | T_Estr_equal (e1, e2) -> 
         cp_expr vars e1 ++
         pushq (reg rax) ++
@@ -292,7 +287,42 @@ let cp_fichier f =
       movq (reg rsp) (reg rax) ++
       movq (imm 16) (reg rbx) ++
       idivq (reg rbx) ++
-      movq (reg rax) (reg rbx) ++
+      movq (reg rdx) (reg rbx) ++
+      ret ++
+      label "Sprintf.0" ++
+      call "Align.0" ++
+      testq (reg rbx) (reg rbx) ++
+      jne "spf.0" ++
+      pushq (reg rbx) ++
+      label "spf.0" ++
+      movq (reg rcx) (reg rdx) ++
+      call "sprintf" ++
+      testq (reg rbx) (reg rbx) ++
+      jne "ret.0" ++
+      popq rbx ++
+      ret ++
+      label "Printf.0" ++
+      call "Align.0" ++
+      testq (reg rbx) (reg rbx) ++
+      jne "pf.0" ++
+      pushq (reg rbx) ++
+      label "pf.0" ++
+      call "printf" ++
+      testq (reg rbx) (reg rbx) ++
+      jne "ret.0" ++
+      popq rbx ++
+      ret ++
+      label "Malloc.0" ++
+      call "Align.0" ++
+      testq (reg rbx) (reg rbx) ++
+      jne "mlc.0" ++
+      pushq (reg rbx) ++
+      label "mlc.0" ++
+      call "malloc" ++
+      testq (reg rbx) (reg rbx) ++
+      jne "ret.0" ++
+      popq rbx ++
+      label "ret.0" ++
       ret ;
     data =
       data_descr ++

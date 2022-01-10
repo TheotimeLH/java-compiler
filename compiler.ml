@@ -262,9 +262,11 @@ let cp_fichier f =
 	{ text =
 			globl "main" ++
 			label "main" ++
+      pushq (reg rbp) ++
       movq (reg rsp) (reg rbp) ++
 			text_main ++
       movq (imm 0) (reg rax) ++
+      leave ++
 			label "new" ++
 			ret ++
       text_cons ++

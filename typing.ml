@@ -1654,6 +1654,9 @@ let type_fichier l_ci =
     let cle_methodes = Hashtbl.fold 
       (fun id_m (info_m : info_methode) l_cle -> (info_m.id_ci,id_m)::l_cle)
       methtab [] in
+    let dc_mere = List.hd (Hashtbl.find env_typage.extends id_c) in
+    let Ntype(id_m,_) = dc_mere.desc in
+
     let id_champs = ref [] in
     let constructeur = ref None in
 
@@ -1688,17 +1691,19 @@ let type_fichier l_ci =
           constructeur := Some {params = params_id ; body = typed_list_instrs}
     in
     List.iter verifie_decl body ;
-    { nom = id_c ; cle_methodes = cle_methodes ; 
+    { nom = id_c ; mere = id_m ; cle_methodes = cle_methodes ; 
       id_champs = !id_champs ; constructeur = !constructeur }
   in
  
-  (* Avant je faisais :       Mais je veux garder mon ordre topologique 
-  IdSet.iter verifie_corps_c 
-    (IdSet.diff env_typage_global.c (IdSet.of_list ["Object";"String";"Main"])) ; *)
+  (*Avant je faisais :       
+      IdSet.iter verifie_corps_c 
+      (IdSet.diff env_typage_global.c (IdSet.of_list ["Object";"String";"Main"])) ;
+    Mais je veux garder mon ordre topologique *) 
   let list_cl = List.filter
     (fun id_c -> (id_c <> "Object") && (id_c <> "String")) !list_cl in
   let l_typed_class = 
-    {nom = "Object" ; cle_methodes = [] ; id_champs = [] ; constructeur = None }
+    {nom = "Object" ; mere = "Object" ; 
+     cle_methodes = [] ; id_champs = [] ; constructeur = None }
     :: (List.map mk_corps_c list_cl) in
 
   (* Enfin, on traite Main *)

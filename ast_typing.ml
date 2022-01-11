@@ -154,6 +154,7 @@ type ty_cle_meth = ident * ident
 
 type ty_classe =
 { nom : ident ;
+  mere : ident ;
   cle_methodes : ty_cle_meth list ;
   id_champs : ident list ;
   constructeur : ty_meth option }

@@ -284,7 +284,7 @@ let cp_fichier f =
       movq (ind ~index:rcx rdi) (reg rbx) ++
       cmpq (reg rbx) (ind ~index:rcx rsi) ++
       jne "new" ++
-      addq (imm 1) (reg rcx) ++
+      incq (reg rcx) ++
       testq (reg rbx) (reg rbx) ++
       jne "start.0" ++
       movq (imm (-1)) (reg rax) ++
@@ -294,7 +294,7 @@ let cp_fichier f =
       movq (ilab "string.0") (reg rax) ++
       testq (reg rbx) (reg rbx) ++
       je "new" ++
-      movq (imm 21) (reg rdi) ++
+      movq (imm 200) (reg rdi) ++
       call "malloc" ++
       movq (reg rax) (reg rdi) ++
       movq (reg rbx) (reg rax) ++
@@ -315,7 +315,7 @@ let cp_fichier f =
       testq (reg rbx) (reg rbx) ++
       jg "noMinus.0" ++
       label "depile.0" ++
-      addq (imm 1) (reg rdi) ++
+      incq (reg rdi) ++
       label "noMinus.0" ++
       movq (reg rdx) (ind rdi) ++
       popq rdx ++

@@ -12,10 +12,6 @@ let new_lbl () =
   incr nlbl ;
   Format.sprintf ".%d" !nlbl
 
-let rec free_stack n = match n with
-    | 0 -> nop
-    | _ -> popq rbx ++ free_stack (n-8)
-
 let cp_fichier f =
   let meths, champs = mk_offset_tbl f.classes f.node_obj in
 
@@ -32,22 +28,25 @@ let cp_fichier f =
     | T_Eunop (T_Uconvert, e0) ->
         cp_expr vars e0 ++
         pushq (reg rax) ++
-        movq (imm 200) (reg rdi) ++
-        call "Malloc.0" ++
-        movq (reg rax) (reg rdi) ++
-        movq (ilab "Convert.0") (reg rsi) ++
-        call "Sprintf.0"
+        movq (imm 168) (reg rdi) ++
+        call "malloc" ++
+        popq rdi ++
+        movq (reg rax) (reg rsi) ++
+        movq (imm 10) (reg rdx) ++
+        call "itoa"
     | T_Ebinop (e1, T_Bconcat, e2) ->
+        movq (imm 800) (reg rdi) ++
+        call "malloc" ++
+        pushq (reg rax) ++
         cp_expr vars e1 ++
+        movq (reg rax) (reg rsi) ++
+        popq rdi ++
+        call "strcat" ++
         pushq (reg rax) ++
         cp_expr vars e2 ++
-        pushq (reg rax) ++
-        imulq (imm 800) (reg rdi) ++
-        call "Malloc.0" ++
-        movq (reg rax) (reg rdi) ++
-        popq rcx ++
-        movq (ilab "Concat.0") (reg rsi) ++
-        call "Sprintf.0"
+        movq (reg rax) (reg rsi) ++
+        popq rdi ++
+        call "strcat"
     | T_Ebinop (e1, (T_Beq | T_Bneq | T_Blt | T_Ble | T_Bgt | T_Bge as op), e2) ->  
         cp_expr vars e1 ++
         pushq (reg rax) ++
@@ -78,11 +77,8 @@ let cp_fichier f =
           | T_Badd_int -> addq (reg rbx) (reg rax)
           | T_Bsub -> subq (reg rbx) (reg rax)
           | T_Bmul -> imulq (reg rbx) (reg rax)
-          | T_Bdiv -> movq (imm 0) (reg rdx) ++ idivq (reg rbx)
-          | _ ->
-              movq (imm 0) (reg rdx) ++
-              idivq (reg rbx) ++
-              movq (reg rdx) (reg rax) end
+          | _ -> cqto ++ idivq (reg rbx) end ++
+        (if op = T_Bmod then movq (reg rdx) (reg rax) else nop)
     | T_Eint n -> movq (imm n) (reg rax)
     | T_Ebool b -> movq (imm (if b then (-1) else 0)) (reg rax)
     | T_Estr s -> 
@@ -103,7 +99,7 @@ let cp_fichier f =
           popq rbx
         in List.fold_left aux (
         movq (imm (size c)) (reg rdi) ++
-        call "Malloc.0" ++
+        call "malloc" ++
         pushq (reg rax) ++
         movq (ilab id) (ind rax) ++
         movq (ind rax) (reg rbx) ++
@@ -186,12 +182,14 @@ let cp_fichier f =
         let cd1, _, p1 = cp_instruc (cd0, vars, p) s1 in
         let cd2 =
           cd1 ++
-          free_stack (p-p1) ++
+          (if p = p1 then nop else addq (imm (p-p1)) (reg rsp)) ++
           jmp lbl1 ++
           label lbl2
         in
         let cd3, _, p2 = cp_instruc (cd2, vars, p) s2 in
-        cd3 ++ free_stack (p-p2) ++ label lbl1, vars, p
+        cd3 ++ 
+        (if p = p2 then nop else addq (imm (p-p2)) (reg rsp)) ++
+        label lbl1, vars, p
     | T_Iwhile (e, s) ->
         let n = new_lbl () in
         let lbl1 = "Deb"^n in
@@ -205,13 +203,15 @@ let cp_fichier f =
         in
         let cd1, v1, p1 = cp_instruc (cd0, vars, p) s in
         cd1 ++
-        free_stack (p-p1) ++
+        (if p = p1 then nop else addq (imm (p-p1)) (reg rsp)) ++
         jmp lbl1 ++
         label lbl2,
         vars, p
     | T_Ibloc l ->
         let cd0, _, p0 = List.fold_left cp_instruc (cd, vars, p) l in
-        cd0 ++ free_stack (p-p0), vars, p
+        cd0 ++ 
+        (if p = p0 then nop else addq (imm (p-p0)) (reg rsp)),
+        vars, p
     | T_Ireturn opt ->
         cd ++ cp_expr vars
         (match opt with None -> T_Enull | Some e -> e) ++
@@ -266,8 +266,8 @@ let cp_fichier f =
       let aux2 x = t.(Hashtbl.find meths (snd x)/8-1) <- Some x in
       List.iter aux2 c.cle_methodes ;
       d ++ label c.nom ++ address
-      ( match c.constructeur
-          | with None -> ["ret.0"]
+      ( match c.constructeur with
+          | None -> ["new"]
           | Some _ -> [c.nom^".new"] ) ++
       Array.fold_left ( fun dt opt -> match opt with
                           | None -> dt ++ dquad [0]
@@ -288,14 +288,14 @@ let cp_fichier f =
 			text_main ++
       movq (imm 0) (reg rax) ++
       leave ++ 
-      label "ret.0" ++
+      label "new" ++
       ret ++
       text_cons ++
       text_meths ++
 
 			label "String.equals" ++
       movq (imm 0) (reg rcx) ++
-      movq (imm 1) (reg rax) ++
+      movq (imm 0) (reg rax) ++
       label "Deb.0" ++
       movq (ind ~index:rcx rdi) (reg rbx) ++
       cmpq (reg rbx) (ind ~index:rcx rsi) ++
@@ -303,63 +303,29 @@ let cp_fichier f =
       addq (imm 1) (reg rcx) ++
       testq (reg rbx) (reg rbx) ++
       jne "Deb.0" ++
-      movq (imm 1) (reg rax) ++
+      movq (imm (-1)) (reg rax) ++
       label "Fin.0" ++
       ret ++
 
-      label "Align.0" ++
+      label "Printf.0" ++
       movq (imm 0) (reg rdx) ++
       movq (reg rsp) (reg rax) ++
       movq (imm 16) (reg rbx) ++
       idivq (reg rbx) ++
       movq (reg rdx) (reg rbx) ++
-      ret ++
-      
-      label "Sprintf.0" ++
-      call "Align.0" ++
-      popq rdx ++
       testq (reg rbx) (reg rbx) ++
-      jne "Sprintf.00" ++
+      je "NoNeed.0" ++
       pushq (reg rbx) ++
-      label "Sprintf.00" ++
-      pushq (reg rdi) ++
-      call "sprintf" ++
-      popq rax ++
-      testq (reg rbx) (reg rbx) ++
-      jne "ret.0" ++
-      popq rbx ++
-      ret ++
-
-      label "Printf.0" ++
-      call "Align.0" ++
-      testq (reg rbx) (reg rbx) ++
-      jne "Printf.00" ++
-      pushq (reg rbx) ++
-      label "Printf.00" ++
+      label "NoNeed.0" ++
       call "printf" ++
       testq (reg rbx) (reg rbx) ++
-      jne "ret.0" ++
+      je "ret.0" ++
       popq rbx ++
-      ret ++
-
-      label "Malloc.0" ++
-      call "Align.0" ++
-      testq (reg rbx) (reg rbx) ++
-      jne "Malloc.00" ++
-      pushq (reg rbx) ++
-      label "Malloc.00" ++
-      call "malloc" ++
-      testq (reg rbx) (reg rbx) ++
-      jne "ret.0" ++
-      popq rbx ++
+      label "ret.0" ++
       ret ;
 
     data =
       data_descr ++
-			label "Convert.0" ++
-			string "%d" ++
-			label "Concat.0" ++
-			string "%s%s" ++
 			label "Print.0" ++
 			string "%s" ++
 	    label "Println.0" ++

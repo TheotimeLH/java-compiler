@@ -108,7 +108,7 @@ let cp_fichier f =
           cp_expr vars e ++
           pushq (reg rax) ++
           cd ++
-          popq rcx
+          popq rbx
         in List.fold_left aux (cp_acces vars a) l
     | T_Eacces_var a -> cp_acces vars a ++ movq (ind rax) (reg rax)
     | T_Eprint e0 ->
@@ -215,25 +215,12 @@ let cp_fichier f =
     List.fold_left cp_instruc (nop, IdMap.empty, -8) f.main_body
   in
 
-  let text_cons =
-    let aux t c = match c.constructeur with
-      | None -> t
-      | Some m -> 
-          let k = ref 2 in
-          let aux1 v id = incr k ; IdMap.add id (!k*8) v in
-          let vars = List.fold_left aux1 IdMap.empty m.params in
-          t ++
-          label (c.nom^".new") ++
-          pushq (reg rbp) ++ 
-          movq (reg rsp) (reg rbp) ++
-          let cd0, _, _ =
-            List.fold_left cp_instruc (nop, vars, -8) m.body
-          in cd0 ++ leave ++ ret
-    in List.fold_left aux nop f.classes
-  in
+  let cons = Hashtbl.create (List.length f.classes) in
 
   let data_descr =
     let aux d c =
+      Hashtbl.add cons c.nom
+      (match c.constructeur with None -> false | Some m -> m.params=[]) ;
       let aux1 k x = max (Hashtbl.find meths (snd x)/8) k in
       let n = List.fold_left aux1 0 c.cle_methodes in
       let t = Array.make n None in
@@ -246,6 +233,29 @@ let cp_fichier f =
       Array.fold_left ( fun dt opt -> match opt with
                           | None -> dt ++ dquad [0]
                           | Some (x, y) -> dt ++ address [x^"."^y] ) nop t
+    in List.fold_left aux nop f.classes
+  in
+
+  let text_cons =
+    let aux t c = match c.constructeur with
+      | None -> t
+      | Some m -> 
+          let k = ref 2 in
+          let aux1 v id = incr k ; IdMap.add id (!k*8) v in
+          let vars = List.fold_left aux1 IdMap.empty m.params in
+          t ++
+          label (c.nom^".new") ++
+          pushq (reg rbp) ++ 
+          movq (reg rsp) (reg rbp) ++
+          ( match c.mere with
+              | id when Hashtbl.find cons id -> 
+                  pushq (ind ~ofs:16 rbp) ++
+                  call_star (lab id) ++
+                  popq rbx 
+              | _ -> nop ) ++
+          let cd0, _, _ =
+            List.fold_left cp_instruc (nop, vars, -8) m.body
+          in cd0 ++ leave ++ ret
     in List.fold_left aux nop f.classes
   in
 

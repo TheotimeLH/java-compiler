@@ -4,13 +4,16 @@ open Ast_typing
 open X86_64
 open Pre_compiler
 
-let cstr = ref IdMap.empty
-let size c = IdMap.cardinal c * 8 + 8
-
 let nlbl = ref 0
 let new_lbl () =
   incr nlbl ;
   Format.sprintf ".%d" !nlbl
+
+let size c = IdMap.cardinal c * 8 + 8
+let cstr = ref (IdMap.singleton "0" ".0")
+
+let free p (cd, _, n) = 
+  cd ++ (if n=p then nop else addq (imm (p-n)) (reg rsp))
 
 let cp_fichier f =
   let meths, champs = mk_offset_tbl f.classes f.node_obj in
@@ -27,13 +30,8 @@ let cp_fichier f =
     | T_Eunop (T_Unot ,e0) -> cp_expr vars e0 ++ notq (reg rax)
     | T_Eunop (T_Uconvert, e0) ->
         cp_expr vars e0 ++
-        pushq (reg rax) ++
-        movq (imm 168) (reg rdi) ++
-        call "malloc" ++
-        popq rdi ++
-        movq (reg rax) (reg rsi) ++
-        movq (imm 10) (reg rdx) ++
-        call "itoa"
+        movq (reg rax) (reg rbx) ++
+        call "Convert.0"
     | T_Ebinop (e1, T_Bconcat, e2) ->
         movq (imm 800) (reg rdi) ++
         call "malloc" ++
@@ -47,16 +45,16 @@ let cp_fichier f =
         movq (reg rax) (reg rsi) ++
         popq rdi ++
         call "strcat"
-    | T_Ebinop (e1, (T_Beq | T_Bneq | T_Blt | T_Ble | T_Bgt | T_Bge as op), e2) ->  
+    | T_Ebinop (e1, (T_Beq|T_Bneq|T_Blt|T_Ble|T_Bgt|T_Bge as op), e2) ->
         cp_expr vars e1 ++
         pushq (reg rax) ++
         cp_expr vars e2 ++
         popq rbx ++
         cmpq (reg rax) (reg rbx) ++
         begin match op with
-          | T_Beq -> sete | T_Bneq -> setne
           | T_Blt -> setl | T_Ble -> setle
-          | T_Bgt -> setg | _ -> setge
+          | T_Bgt -> setg | T_Bge -> setge
+          | T_Beq -> sete | _ -> setne
         end (reg bl) ++
         movq (imm 0) (reg rax) ++
         movb (reg bl) (reg al)
@@ -80,7 +78,7 @@ let cp_fichier f =
           | _ -> cqto ++ idivq (reg rbx) end ++
         (if op = T_Bmod then movq (reg rdx) (reg rax) else nop)
     | T_Eint n -> movq (imm n) (reg rax)
-    | T_Ebool b -> movq (imm (if b then (-1) else 0)) (reg rax)
+    | T_Ebool b -> movq (imm (if b then -1 else 0)) (reg rax)
     | T_Estr s -> 
         let lbl = "string"^
           begin try IdMap.find s !cstr 
@@ -112,9 +110,7 @@ let cp_fichier f =
           cd ++
           popq rcx
         in List.fold_left aux (cp_acces vars a) l
-    | T_Eacces_var a ->
-        cp_acces vars a ++
-        movq (ind rax) (reg rax)
+    | T_Eacces_var a -> cp_acces vars a ++ movq (ind rax) (reg rax)
     | T_Eprint e0 ->
         cp_expr vars e0 ++
         movq (reg rax) (reg rsi) ++
@@ -147,8 +143,7 @@ let cp_fichier f =
     | T_Achemin_ch ((es, tp), id) ->
         let cls = Hashtbl.find champs tp in
         let n = IdMap.find id cls in
-        cp_expr vars es ++
-        leaq (ind ~ofs:n rax) rax 
+        cp_expr vars es ++ leaq (ind ~ofs:n rax) rax 
 
   and cp_instruc (cd, vars, p) st = match st with
     | T_Inil -> cd, vars, p 
@@ -171,51 +166,34 @@ let cp_fichier f =
         IdMap.add id p vars, p-8
     | T_Iif (e, s1, s2) ->
         let n = new_lbl () in
-        let lbl1 = "If"^n in
-        let lbl2 = "Else"^n in
-        let cd0 =
-          cd ++
-          cp_expr vars e ++
-          testq (reg rax) (reg rax) ++
-          je lbl2
-        in
-        let cd1, _, p1 = cp_instruc (cd0, vars, p) s1 in
-        let cd2 =
-          cd1 ++
-          (if p = p1 then nop else addq (imm (p-p1)) (reg rsp)) ++
-          jmp lbl1 ++
-          label lbl2
-        in
-        let cd3, _, p2 = cp_instruc (cd2, vars, p) s2 in
-        cd3 ++ 
-        (if p = p2 then nop else addq (imm (p-p2)) (reg rsp)) ++
-        label lbl1, vars, p
+        cd ++
+        cp_expr vars e ++
+        testq (reg rax) (reg rax) ++
+        je ("Else"^n) ++
+        (cp_instruc (nop, vars, p) s1 |> free p) ++
+        jmp ("If"^n) ++
+        label ("Else"^n) ++
+        (cp_instruc (nop, vars, p) s2 |> free p) ++
+        label ("If"^n),
+        vars, p
     | T_Iwhile (e, s) ->
         let n = new_lbl () in
-        let lbl1 = "Deb"^n in
-        let lbl2 = "Fin"^n in
-        let cd0 =
-          cd ++
-          label lbl1 ++
-          cp_expr vars e ++
-          testq (reg rax) (reg rax) ++
-          je lbl2
-        in
-        let cd1, v1, p1 = cp_instruc (cd0, vars, p) s in
-        cd1 ++
-        (if p = p1 then nop else addq (imm (p-p1)) (reg rsp)) ++
-        jmp lbl1 ++
-        label lbl2,
+        cd ++
+        label ("Deb"^n) ++
+        cp_expr vars e ++
+        testq (reg rax) (reg rax) ++
+        je ("Fin"^n) ++
+        (cp_instruc (nop, vars, p) s |> free p) ++
+        jmp ("Deb"^n) ++
+        label ("Fin"^n),
         vars, p
     | T_Ibloc l ->
-        let cd0, _, p0 = List.fold_left cp_instruc (cd, vars, p) l in
-        cd0 ++ 
-        (if p = p0 then nop else addq (imm (p-p0)) (reg rsp)),
-        vars, p
+        List.fold_left cp_instruc (cd, vars, p) l |> free p, vars, p
     | T_Ireturn opt ->
-        cd ++ cp_expr vars
-        (match opt with None -> T_Enull | Some e -> e) ++
-        leave ++ ret, vars, p
+        cd ++
+        cp_expr vars (match opt with None -> T_Enull | Some e -> e) ++
+        leave ++ ret,
+        vars, p
   in
 
   let text_meths =
@@ -223,15 +201,13 @@ let cp_fichier f =
       let k = ref 2 in
       let aux1 v id = incr k ; IdMap.add id (!k*8) v in
       let vars = List.fold_left aux1 IdMap.empty info.params in
-      let lbl = fst key ^ "." ^ snd key in
-      let cd =
-        t ++
-        label lbl ++
-        pushq (reg rbp) ++
-        movq (reg rsp) (reg rbp)
-      in
-      let cd0, _, _ = List.fold_left cp_instruc (cd, vars, -8) info.body in
-      cd0 ++ leave ++ ret
+      t ++
+      label (fst key ^ "." ^ snd key) ++
+      pushq (reg rbp) ++
+      movq (reg rsp) (reg rbp) ++
+      let cd0, _, _ =
+        List.fold_left cp_instruc (nop, vars, -8) info.body
+      in cd0 ++ leave ++ ret
     in Hashtbl.fold aux f.tbl_meth nop 
   in
 
@@ -246,15 +222,13 @@ let cp_fichier f =
           let k = ref 2 in
           let aux1 v id = incr k ; IdMap.add id (!k*8) v in
           let vars = List.fold_left aux1 IdMap.empty m.params in
-          let lbl = c.nom ^ ".new" in
-          let cd =
-            t ++
-            label lbl ++
-            pushq (reg rbp) ++ 
-            movq (reg rsp) (reg rbp)
-          in
-          let cd0, _, _ = List.fold_left cp_instruc (cd, vars, -8) m.body in
-          cd0 ++ leave ++ ret
+          t ++
+          label (c.nom^".new") ++
+          pushq (reg rbp) ++ 
+          movq (reg rsp) (reg rbp) ++
+          let cd0, _, _ =
+            List.fold_left cp_instruc (nop, vars, -8) m.body
+          in cd0 ++ leave ++ ret
     in List.fold_left aux nop f.classes
   in
 
@@ -287,7 +261,7 @@ let cp_fichier f =
       movq (reg rsp) (reg rbp) ++
 			text_main ++
       movq (imm 0) (reg rax) ++
-      leave ++ 
+      leave ++
       label "new" ++
       ret ++
       text_cons ++
@@ -296,15 +270,47 @@ let cp_fichier f =
 			label "String.equals" ++
       movq (imm 0) (reg rcx) ++
       movq (imm 0) (reg rax) ++
-      label "Deb.0" ++
+      label "start.0" ++
       movq (ind ~index:rcx rdi) (reg rbx) ++
       cmpq (reg rbx) (ind ~index:rcx rsi) ++
-      jne "Fin.0" ++
+      jne "new" ++
       addq (imm 1) (reg rcx) ++
       testq (reg rbx) (reg rbx) ++
-      jne "Deb.0" ++
+      jne "start.0" ++
       movq (imm (-1)) (reg rax) ++
-      label "Fin.0" ++
+      ret ++
+
+      label "Convert.0" ++
+      movq (ilab "string.0") (reg rax) ++
+      testq (reg rbx) (reg rbx) ++
+      je "new" ++
+      movq (imm 21) (reg rdi) ++
+      call "malloc" ++
+      movq (reg rax) (reg rdi) ++
+      movq (reg rbx) (reg rax) ++
+      movq (imm 10) (reg rcx) ++
+      movq (imm 0) (reg rdx) ++
+      testq (reg rbx) (reg rbx) ++
+      jg "positif.0" ++
+      movq (imm 45) (ind rdi) ++
+      negq (reg rax) ++
+      label "positif.0" ++
+      pushq (reg rdx) ++
+      movq (imm 0) (reg rdx) ++
+      idivq (reg rcx) ++
+      addq (imm 48) (reg rdx) ++
+      testq (reg rax) (reg rax) ++
+      jne "positif.0" ++
+      movq (reg rdi) (reg rax) ++
+      testq (reg rbx) (reg rbx) ++
+      jg "noMinus.0" ++
+      label "depile.0" ++
+      addq (imm 1) (reg rdi) ++
+      label "noMinus.0" ++
+      movq (reg rdx) (ind rdi) ++
+      popq rdx ++
+      testq (reg rdx) (reg rdx) ++
+      jne "depile.0" ++
       ret ++
 
       label "Printf.0" ++
@@ -314,14 +320,13 @@ let cp_fichier f =
       idivq (reg rbx) ++
       movq (reg rdx) (reg rbx) ++
       testq (reg rbx) (reg rbx) ++
-      je "NoNeed.0" ++
+      je "noAlign.0" ++
       pushq (reg rbx) ++
-      label "NoNeed.0" ++
+      label "noAlign.0" ++
       call "printf" ++
       testq (reg rbx) (reg rbx) ++
-      je "ret.0" ++
+      je "new" ++
       popq rbx ++
-      label "ret.0" ++
       ret ;
 
     data =

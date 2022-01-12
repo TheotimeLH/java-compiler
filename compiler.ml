@@ -281,11 +281,11 @@ let cp_fichier f =
       movq (imm 0) (reg rcx) ++
       movq (imm 0) (reg rax) ++
       label "start.0" ++
-      movq (ind ~index:rcx rdi) (reg rbx) ++
-      cmpq (reg rbx) (ind ~index:rcx rsi) ++
+      movb (ind ~index:rcx rdi) (reg bl) ++
+      cmpb (reg bl) (ind ~index:rcx rsi) ++
       jne "new" ++
       incq (reg rcx) ++
-      testq (reg rbx) (reg rbx) ++
+      testb (reg bl) (reg bl) ++
       jne "start.0" ++
       movq (imm (-1)) (reg rax) ++
       ret ++

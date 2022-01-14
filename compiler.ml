@@ -33,17 +33,23 @@ let cp_fichier f =
         movq (reg rax) (reg rbx) ++
         call "Convert.0"
     | T_Ebinop (e1, T_Bconcat, e2) ->
-        movq (imm 800) (reg rdi) ++
-        call "malloc" ++
-        pushq (reg rax) ++
-        cp_expr vars e1 ++
-        movq (reg rax) (reg rsi) ++
-        popq rdi ++
-        call "strcat" ++
-        pushq (reg rax) ++
         cp_expr vars e2 ++
-        movq (reg rax) (reg rsi) ++
+        pushq (reg rax) ++
+        pushq (ind ~ofs:(-8) rax) ++
+        cp_expr vars e1 ++
         popq rdi ++
+        pushq (reg rax) ++ 
+        addq (ind ~ofs:(-8) rax) (reg rdi) ++
+        pushq (reg rdi) ++
+        addq (imm 10) (reg rdi) ++
+        call "malloc" ++
+        popq rdi ++
+        movq (reg rdi) (ind rax) ++
+        leaq (ind ~ofs:8 rax) rdi ++
+        popq rsi ++
+        call "strcat" ++
+        movq (reg rax) (reg rdi) ++
+        popq rsi ++
         call "strcat"
     | T_Ebinop (e1, (T_Beq|T_Bneq|T_Blt|T_Ble|T_Bgt|T_Bge as op), e2) ->
         cp_expr vars e1 ++
@@ -86,7 +92,7 @@ let cp_fichier f =
             let n = new_lbl () in
             cstr := IdMap.add s n !cstr ;
             n end
-        in movq (ilab lbl) (reg rax)
+        in movq (ilab lbl) (reg rax) ++ addq (imm 8) (reg rax)
     | T_Ethis -> movq (ind ~ofs:16 rbp) (reg rax)
     | T_Enew (id, l) ->
         let c = Hashtbl.find champs id in
@@ -260,7 +266,11 @@ let cp_fichier f =
   in
 
   let data_cstr =
-    let aux s n d = d ++ label ("string"^n) ++ string s
+    let aux s n d =
+      d ++
+      label ("string"^n) ++
+      dquad [String.length s] ++
+      string s
     in IdMap.fold aux !cstr nop
   in
 
@@ -292,18 +302,21 @@ let cp_fichier f =
 
       label "Convert.0" ++
       movq (ilab "string.0") (reg rax) ++
+      addq (imm 8) (reg rax) ++
       testq (reg rbx) (reg rbx) ++
       je "new" ++
-      movq (imm 200) (reg rdi) ++
+      movq (imm 30) (reg rdi) ++
       call "malloc" ++
-      movq (reg rax) (reg rdi) ++
+      leaq (ind ~ofs:8 rax) rdi ++
       movq (reg rbx) (reg rax) ++
       movq (imm 10) (reg rcx) ++
       movq (imm 0) (reg rdx) ++
+      movq (reg rdi) (reg rsi) ++
       testq (reg rbx) (reg rbx) ++
       jg "positif.0" ++
       movq (imm 45) (ind rdi) ++
       negq (reg rax) ++
+      incq (reg rsi) ++
       label "positif.0" ++
       pushq (reg rdx) ++
       movq (imm 0) (reg rdx) ++
@@ -312,15 +325,14 @@ let cp_fichier f =
       testq (reg rax) (reg rax) ++
       jne "positif.0" ++
       movq (reg rdi) (reg rax) ++
-      testq (reg rbx) (reg rbx) ++
-      jg "noMinus.0" ++
       label "depile.0" ++
-      incq (reg rdi) ++
-      label "noMinus.0" ++
-      movq (reg rdx) (ind rdi) ++
+      movb (reg dl) (ind rsi) ++
+      incq (reg rsi) ++
       popq rdx ++
       testq (reg rdx) (reg rdx) ++
       jne "depile.0" ++
+      subq (reg rax) (reg rsi) ++
+      movq (reg rsi) (ind ~ofs:(-8) rax) ++
       ret ++
 
       label "Printf.0" ++

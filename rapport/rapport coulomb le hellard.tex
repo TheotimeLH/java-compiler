@@ -6,7 +6,9 @@
 \usepackage{amsfonts}
 \usepackage{amssymb}
 \usepackage[left=2cm,right=2cm,top=2cm,bottom=2cm]{geometry}
+
 \begin{document}
+
 Notre projet est en Ocaml, le lexer utilise Ocamllex et le parser Menhir. Nous passons 100\% des tests à tous les niveaux. Nous nous sommes organisés ainsi : Théotime a fait le lexer, Samuel le parser, Théotime le typage et enfin Samuel la production de code. Ce qui explique pourquoi nous employons le singulier dans nos parties respectives. Même si dans les faits nous avons réfléchis à deux aux différents problèmes et soucis rencontrés. C'est surtout pour certains aspects purement technique du typage, que j'ai (Théotime) cherché tête baissée. \\
 Nous avons jugé inutile de faire des commentaires sur le lexer et le parser. \\ \\
 
@@ -71,8 +73,47 @@ Pour calculer ces offsets j'ai fait un coloriage de graphe avec une heuristique 
 \end{itemize}
 
 \section{La production de code / compilation :}
-Pb de la division merci Florian\\
-Galère pour la conversion d'entiers, sprintf itoa puis finalement à la main. \\
-Pb de "" + 1 != 1 et "aaaa"+1 != "aaaa1" MAIS "toto"+1 = "toto1". \\
-Pb des constructeurs, on n'a pas le \texttt{super} MAIS on doit appeler \textbf{les} constructeurs vides parent. Nous on a juste appelé le parent si c'est un constructeur sans paramètre. En java si on n'explicite pas un appel à un constructeur parent, il essaye d'appeler le constructeur par défaut, et si celui-ci demande des paramètres, java pointe une erreur vers des caractères inexistants... 
+
+Le code produit est toujours de la forme: \\
+\begin{array}{r|l}
+TEXT \\
+main & \text{ bloc Main } \\
+new & \text{ constructeur par défaut } \\
+classe.new & \text{ corps des constructeurs } \\
+classe.ident & \text{ corps des méthodes } \\
+String.equals & \text{ méthode String.equals hard-codée } \\
+Convert & \text{ procédure pour convertir les entiers en string } \\
+Printf & 	\text{  alignement de la pile avant appel à "printf" } \\
+DATA \\
+classe & \text{ descripteur de classe } \\
+Print & \text{ formats donnés à printf } \\
+string & \text{ chaînes de caractère primitives } \\
+\end{array}
+
+Problèmes rencontrés et soution apportées:
+\begin{itemize}
+	\item Différencier concaténation et addition : communiqué par le typage
+	\item Garantir unicité des étiquettes : tirer avantage des restrictions sur les ident (pas de caractère '.', pas de mots-clés, ...) et identificateur (.int) si besoin (.0 pour le code permanent)
+	\item Libérer la pile des variables locales : place occupée sur la pile passée en argument et non pas globale
+	\item Respecter les extends et implements pour la position des méthodes dans les descripteurs de classe : coloriage dans pre_compiler
+	\item Conversion d'entier en string : essais avec sprintf puis itoa avant de
+hard-codé
+	\item Concaténation : pour calculer la place à allouer sur le tas, on retient la taille d'une string son adresse-8
+	\item Division : le signe de rax doit passer sur rdx (merci Florian et Mandelbrot!)
+	\item Booléen true : notq inverse tous les bits donc on représente true par -1 au lieu de 1	
+	\item Différencier l'accés aux méthodes/champs : communiqué par le typage
+	\item System.out.print et String.equals : transformées en expressions spéciales
+	\item Caractères sur un octet et non huit : en manipulant huits octets à la fois on risque de prendre en compte des octets hors de la mémoire allouée pour la string
+	\item Héritage des constructeurs : le comportement est assez obscur en java, on choisit ici d'appeler le parent ssi il n'a pas de paramètres
+\end{itemize}
+
+Spécificités:
+\begin{itemize}
+	\item Les chaînes de caractères qui apparaissent plusieurs fois dans l'entrée n'ont qu'une occurence dans .data
+	\item On aligne la pile pour printf mais pas pour malloc et strcat
+	\item Les conventions registres ne sont pas rigoureusement respectées
+	\item La première adresse du descripteur pointe vers le contructeur
+	\item On utilise strcat pour la concaténaton de chaînes de caractères
+\end{itemize}
+
 \end{document}

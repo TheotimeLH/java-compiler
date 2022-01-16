@@ -74,7 +74,7 @@ Pour calculer ces offsets j'ai fait un coloriage de graphe avec une heuristique 
 
 \section{La production de code / compilation :}
 
-Le code produit est toujours de la forme: \\
+Le code produit est toujours de la forme: \\ \\
 \begin{array}{r|l}
 TEXT \\
 main & \text{ bloc Main } \\
@@ -84,18 +84,20 @@ classe.ident & \text{ corps des méthodes } \\
 String.equals & \text{ méthode String.equals hard-codée } \\
 Convert & \text{ procédure pour convertir les entiers en string } \\
 Printf & 	\text{  alignement de la pile avant appel à "printf" } \\
-DATA \\
+\\ DATA \\
 classe & \text{ descripteur de classe } \\
-Print & \text{ formats donnés à printf } \\
+Print(ln) & \text{ formats donnés à printf } \\
 string & \text{ chaînes de caractère primitives } \\
 \end{array}
+\bigskip
 
+\bigskip
 Problèmes rencontrés et soution apportées:
 \begin{itemize}
 	\item Différencier concaténation et addition : communiqué par le typage
 	\item Garantir unicité des étiquettes : tirer avantage des restrictions sur les ident (pas de caractère '.', pas de mots-clés, ...) et identificateur (.int) si besoin (.0 pour le code permanent)
 	\item Libérer la pile des variables locales : place occupée sur la pile passée en argument et non pas globale
-	\item Respecter les extends et implements pour la position des méthodes dans les descripteurs de classe : coloriage dans pre_compiler
+	\item Respecter les extends et implements pour la position des méthodes dans les descripteurs de classe : coloriage dans le precompiler
 	\item Conversion d'entier en string : essais avec sprintf puis itoa avant de
 hard-codé
 	\item Concaténation : pour calculer la place à allouer sur le tas, on retient la taille d'une string son adresse-8
@@ -105,8 +107,11 @@ hard-codé
 	\item System.out.print et String.equals : transformées en expressions spéciales
 	\item Caractères sur un octet et non huit : en manipulant huits octets à la fois on risque de prendre en compte des octets hors de la mémoire allouée pour la string
 	\item Héritage des constructeurs : le comportement est assez obscur en java, on choisit ici d'appeler le parent ssi il n'a pas de paramètres
+	\item Reconnaitre les this implicites : explicités au typage
 \end{itemize}
+\bigskip
 
+\bigskip
 Spécificités:
 \begin{itemize}
 	\item Les chaînes de caractères qui apparaissent plusieurs fois dans l'entrée n'ont qu'une occurence dans .data

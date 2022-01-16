@@ -6,7 +6,8 @@
 \usepackage{amsfonts}
 \usepackage{amssymb}
 \usepackage[left=2cm,right=2cm,top=2cm,bottom=2cm]{geometry}
-
+\usepackage{hyperref}
+\usepackage{enumitem}
 \begin{document}
 
 Notre projet est en Ocaml, le lexer utilise Ocamllex et le parser Menhir. Nous passons 100\% des tests à tous les niveaux. Nous nous sommes organisés ainsi : Théotime a fait le lexer, Samuel le parser, Théotime le typage et enfin Samuel la production de code. Ce qui explique pourquoi nous employons le singulier dans nos parties respectives. Même si dans les faits nous avons réfléchis à deux aux différents problèmes et soucis rencontrés. C'est surtout pour certains aspects purement technique du typage, que j'ai (Théotime) cherché tête baissée. \\
@@ -15,7 +16,7 @@ Nous avons jugé inutile de faire des commentaires sur le lexer et le parser. \\
 \section{Le typage :}
 La partie qui suit date de décembre. \\
 J'ai abondé mon code de commentaires, en expliquant ce que j'ai compris de java, les problèmes que j'ai eu et surtout les solutions apportées. Partant d'une méconnaissance totale des langages objets, la première difficulté fut d'apprendre les bases de Java (je remercie Félix et Naëla), mais aussi les comportements plus spécifiques voire parfois obscure de Java. En parallèle de mon avancé dans le projet, je testais le comportement de java et j'ai laissé mon dossier tests\_perso au complet car j'y fais référence dans mes commentaires (même si de nombreux tests furent avortés et je n'y fais plus référence). Brièvement mon code s'articule ainsi :
-\begin{itemize}
+\begin{itemize}[label=\textbullet]
 \item Je prépare le terrain en déclarant mes variables globales.
 \item Je récupère le nom des classes et des interfaces, et je place des informations utiles dans les variables globales.
 \item Je déclare les liens d'héritages entre les classes et entre les interfaces.
@@ -32,7 +33,7 @@ J'ai abondé mon code de commentaires, en expliquant ce que j'ai compris de java
 Remarque : en décembre, quand j'ai fini pour la première fois le typage, ne sachant pas à l'avance exactement ce qui est utile pour la production de code, la fonction de typage ne produisait rien. Elle renvoyait une erreur si justifiée, sinon elle disait juste que le typage s'est bien passé. Je préférais ne pas m'encombrer avec ça, au vu du nombre de modifications que j'ai dû faire pour aboutir à quelque chose de correcte et pratique (passer de Hashtbl aux Map ou l'inverse, ou changer le type de retour d'une fonction par exemple). Je parle de l'arbre de sortie à la fin de mes commentaires sur le typage. \\ 
 
 La liste de mes difficultés rencontrées est longue et les brouillons se sont accumulés sur mon bureau, mais les commentaires dans le programme retranscrivent déjà tout ce que j'ai jugé intéressant. Brièvement :
-\begin{itemize}
+\begin{itemize}[label=\textbullet]
 \item Comme je le dis au tout début de mon programme, je garde les informations à trois endroits différents : 
 \begin{itemize}
 \item Les variables globales pour les informations très générales concernant les "vraies" classes et interfaces (comprendre par là, pas les types paramètres).
@@ -57,7 +58,7 @@ Le typage est désormais complet et je vous remercie beaucoup pour tous vos test
 D'ailleurs c'est le gros point noir de mon programme, j'aimerais rendre les messages d'erreurs plus propre. Car pour le moment il ne peuvent renvoyer qu'une seule localisation et des fois deux seraient plus agréables. Exemple : \texttt{I c; ... c = A;} avec A non sous-type de I. Plutôt que de cibler uniquement l'expression \texttt{c = A}, nous pourrions aussi dire d'où le type de c provient. \\ \\
 Commentaire final concernant le typage pour le rendu final : \\
 C'était prévisible, je n'ai pas eu le temps de retoucher au typage pour l'embellir (avec le type Jvoid au lieu d'utiliser des jtype option ou en rajoutant des messages d'erreurs plus précis). En revanche désormais le typeur renvoie un arbre de sortie très pratique pour la production de code (la "compilation"). Nous avons fait le point de manière à avoir un maximum d'informations tout en ne gardant rien d'inutile. 
-\begin{itemize}
+\begin{itemize}[label=\textbullet]
 \item Pour les instructions, on garde le type apparent uniquement pour les accès de champs (ou plus précisément on le fait apparaître puisqu'il n'y était pas). De plus on se débarrasse des paramètres de types et si $x$ est un objet de type $T$ où $T$ est un paramètre de type, on retrouve quelle est la première vraie classe mère de $T$. Par exemple pour \texttt{T extends X, X extends C<Y>, Y extends I}, on remplace $X$ par $C$ et de même on considère tout objet de type $Y$ comme un objet de la classe \texttt{Object}.
 \item Pour les instructions, on sépare le "+" d'addition d'entiers du "+" de concaténation et on a une nouvelle opération unaire signifiant qu'il faut convertir un entier en chaîne de caractères. On rajoute également des "this." dès qu'ils sont sous entendus pour éviter des ambiguïtés. La méthode \texttt{equals} de la classe \texttt{String} est désormais traitée à part, tout comme \texttt{System.out.print} et \texttt{println}. 
 \item Les corps des méthodes sont désormais regroupés dans une grande table \texttt{tbl\_meth}. Excepté pour la méthode main. On accède au corps d'une méthode avec une clé : (\textit{nom de la classe où se trouvait la définition de cette méthode}, \textit{nom de la méthode}). Pour une classe on n'a plus qu'à se souvenir de la liste des clés des méthodes qu'elle peut utiliser, tout comme on garde la liste des noms de ses champs. En revanche les constructeurs restent avec les classes (cf la fin de \texttt{ast\_typing.ml}).
@@ -66,16 +67,16 @@ C'était prévisible, je n'ai pas eu le temps de retoucher au typage pour l'embe
 
 \vspace{0.8cm}
 \noindent Comme mentionné, nous avons rajouté une étape de pré-compilation / pré-production de code. La seule chose qu'il nous reste à faire après le typage, c'est calculer les offsets pour les champs et les méthodes.
-\begin{itemize}
+\begin{itemize}[label=\textbullet]
 \item Pour les champs : lorsqu'on veut accéder à un champ, on connaît sa vraie classe (cf premier tiret du paragraphe précédent). Ainsi on a fait une table d'offset qui à chaque classe et chaque nom de champ, associe l'offset du champ. Pour ce faire on doit simplement suivre l'arbre des héritages (d'où l'utilisé de \texttt{node\_obj}), de manière à garder les mêmes offsets pour les champs déjà présents dans les sur-classes. 
 \item Pour les méthodes : nous n'avons pas opté pour la même stratégie. En effet même sans relation d'héritage, deux classes peuvent partagées une méthode (si elles implémentent des interfaces en relation), qui doit avoir un unique offset. Ainsi nous avons choisi d'associer à chaque nom de méthodes un offset. Et j'ai (Théotime) cherché une attribution des offsets de manière à minimiser les blancs. Par exemple : si on a une classe $A$ avec une méthode $a$, idem $B$ avec $b$ et enfin $C$ avec$a$ et $b$. Peu importe si on attribue l'offset $8$ à $a$ et le $16$ à $b$, l'un des descripteurs de classe de $A$ ou de $B$ devra laisser une ligne vide. En revanche : si la classe $A$ contient désormais aussi une méthode $d$, je les range ainsi : dans le descripteur de $A$, $d$ en $8$ et $a$ en 16, dans le descripteur de $B$, $b$ en $8$ et enfin dans le descripteur de $C$, $b$ en $8$ et $a$ en $16$. $b$ et $d$ ont le même offset mais ça ne pose pas de problème puisqu'ils ne se trouvent jamais dans une même classe. \\
 Pour calculer ces offsets j'ai fait un coloriage de graphe avec une heuristique sortie du chapeau que je détaille dans \texttt{pre\_compiler.ml}.
 \end{itemize}
-
+\newpage
 \section{La production de code / compilation :}
 
 Le code produit est toujours de la forme: \\ \\
-\begin{array}{r|l}
+\begin{tabular}{r|l}
 TEXT \\
 main & \text{ bloc Main } \\
 new & \text{ constructeur par défaut } \\
@@ -88,12 +89,12 @@ Printf & 	\text{  alignement de la pile avant appel à "printf" } \\
 classe & \text{ descripteur de classe } \\
 Print(ln) & \text{ formats donnés à printf } \\
 string & \text{ chaînes de caractère primitives } \\
-\end{array}
+\end{tabular}
 \bigskip
 
 \bigskip
 Problèmes rencontrés et soution apportées:
-\begin{itemize}
+\begin{itemize}[label=\textbullet]
 	\item Différencier concaténation et addition : communiqué par le typage
 	\item Garantir unicité des étiquettes : tirer avantage des restrictions sur les ident (pas de caractère '.', pas de mots-clés, ...) et identificateur (.int) si besoin (.0 pour le code permanent)
 	\item Libérer la pile des variables locales : place occupée sur la pile passée en argument et non pas globale
@@ -113,12 +114,16 @@ hard-codé
 
 \bigskip
 Spécificités:
-\begin{itemize}
+\begin{itemize}[label=\textbullet]
 	\item Les chaînes de caractères qui apparaissent plusieurs fois dans l'entrée n'ont qu'une occurence dans .data
 	\item On aligne la pile pour printf mais pas pour malloc et strcat
 	\item Les conventions registres ne sont pas rigoureusement respectées
 	\item La première adresse du descripteur pointe vers le contructeur
 	\item On utilise strcat pour la concaténaton de chaînes de caractères
 \end{itemize}
+
+\subsubsection*{Conclusion :}
+\noindent Remarque 1 : Vous pouvez accéder à notre projet par GitHub avec \url{https://github.com/physikks/java-compiler}. \\
+Remarque 2 : Avec une fausse manip j'ai (Théotime) supprimé ma dernière version du dossier de tests\_perso (juste avant de le passer sur git) (un rm *.java au lieu de rm *.class pour faire le ménage...). Donc il ne contient pas les tests de production de code.
 
 \end{document}
